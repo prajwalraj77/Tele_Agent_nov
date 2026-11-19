@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Voice Test</title>
+</head>
+
+<body>
+
+    <h1>AI Voice Test</h1>
+
+    <button id="startButton">Start Voice Test</button>
+
+    <p id="status">Not connected</p>
+
+    <script>
+        const startButton = document.getElementById("startButton");
+        const status = document.getElementById("status");
+
+        let socket;
+        let audioContext;
+        let microphone;
+        let processor;
+        let microphoneStream;
+
+        // =====================================================
+        // AI AUDIO PLAYBACK STATE
+        // =====================================================
+
+        const audioQueue = [];
+
+        let isPlaying = false;
+        let currentSource = null;
+
+        // =====================================================
+        // USER SPEECH DETECTION
+        // =====================================================
+
+        let userIsSpeaking = false;
+
+        const SPEECH_THRESHOLD = 0.04;
+
+        // Prevent repeated interruption triggers
+        let lastSpeechTime = 0;
+
+        // =====================================================
+        // CUSTOMER ID
+        // =====================================================
+
+        let customerId =
+            localStorage.getItem("customerId");
+
+        if (!customerId) {
+            customerId =
+                "CUS_" +
+                crypto.randomUUID();
+
+            localStorage.setItem(
+                "customerId",
+                customerId
+            );
+        }
+
+        console.log(
+            "Browser Customer ID:",
+            customerId
+        );
+
+        // =====================================================
+        // START
+        // =====================================================
+
+        startButton.addEventListener("click", async () => {
+
+            try {
+
+                startButton.disabled = true;
+
+                status.textContent = "Starting audio...";
+
+                // =================================================
+                // 1. CREATE AUDIO CONTEXT FIRST
+                // =================================================
+
+                audioContext = new AudioContext({
+                    sampleRate: 16000
+                });
+
+                await audioContext.resume();
+
+                console.log(
+                    "Audio sample rate:",
+                    audioContext.sampleRate
+                );
+
+                // =================================================
+                // 2. GET MICROPHONE
+                // =================================================
+
+                microphoneStream =
+                    await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            channelCount: 1,
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true
+                        }
+                    });
+
+                console.log(
+                    "Microphone permission granted"
+                );
+
+                // =================================================
+                // 3. CREATE MICROPHONE SOURCE
+                // =================================================
+
+                microphone =
+                    audioContext.createMediaStreamSource(
+                        microphoneStream
+                    );
+
+                // =================================================
+                // 4. CREATE PROCESSOR
+                // =================================================
+
+                processor =
+                    audioContext.createScriptProcessor(
+                        4096,
+                        1,
+                        1
+                    );
+
+                microphone.connect(processor);
+
+                processor.connect(
+                    audioContext.destination
+                );
+
+                // =================================================
+                // 5. CONNECT WEBSOCKET
+                // =================================================
+
+                status.textContent = "Connecting to AI...";
+
+                socket =
+                    new WebSocket(
+                        "ws://localhost:5000/media-stream?customerId=" +
+                        encodeURIComponent(customerId)
+                    );
+
+                socket.onopen = () => {
+
+                    console.log(
+                        "WebSocket connected"
+                    );
+
+                    status.textContent =
+                        "Connected. AI is ready.";
+                };
+
+                socket.onerror = (error) => {
+
+                    console.error(
+                        "WebSocket error:",
+                        error
+                    );
+
+                    status.textContent =
+                        "WebSocket error";
+                };
+
+                socket.onclose = () => {
+
+                    console.log(
+                        "WebSocket disconnected"
+                    );
+
+                    status.textContent =
+                        "Disconnected";
+                };
+
+                // =================================================
+                // 6. RECEIVE GEMINI MESSAGES
+                // =================================================
+
+                socket.onmessage = async (event) => {
+
+                    try {
+
+                        const message =
+                            JSON.parse(event.data);
+
+                        // -----------------------------------------
+                        // AI AUDIO
+                        // -----------------------------------------
+
+                        if (message.type === "audio") {
+
+                            console.log(
+                                "Received AI audio"
+                            );
+
+                            audioQueue.push(
+                                message.data
+                            );
+
+                            playNextAudio();
+                        }
+
+                        // -----------------------------------------
+                        // TRANSCRIPT
+                        // -----------------------------------------
+
+                        if (
+                            message.type ===
+                            "transcript"
+                        ) {
+
+                            console.log(
+                                `${message.type}: ${message.text}`
+                            );
+                        }
+
+                    } catch (error) {
+
+                        console.error(
+                            "Message processing error:",
+                            error
+                        );
+                    }
+                };
+
+                // =================================================
+                // 7. MICROPHONE AUDIO PROCESSING
+                // =================================================
+
+                processor.onaudioprocess =
+                    (event) => {
+
+                        if (
+                            !socket ||
+                            socket.readyState !==
+                            WebSocket.OPEN
+                        ) {
+                            return;
+                        }
+
+                        const inputData =
+                            event.inputBuffer
+                                .getChannelData(0);
+
+                        // -----------------------------------------
+                        // CALCULATE MICROPHONE VOLUME
+                        // -----------------------------------------
+
+                        let sum = 0;
+
+                        for (
+                            let i = 0;
+                            i < inputData.length;
+                            i++
+                        ) {
+
+                            sum +=
+                                inputData[i] *
+                                inputData[i];
+                        }
+
+                        const rms =
+                            Math.sqrt(
+                                sum /
+                                inputData.length
+                            );
+
+                        const now =
+                            performance.now();
+
+                        // -----------------------------------------
+                        // USER STARTED SPEAKING
+                        // -----------------------------------------
+
+                        if (
+                            rms >
+                            SPEECH_THRESHOLD &&
+                            !userIsSpeaking &&
+                            now - lastSpeechTime >
+                            500
+                        ) {
+
+                            userIsSpeaking = true;
+
+                            lastSpeechTime =
+                                now;
+
+                            console.log(
+                                "🛑 User started speaking - interrupting AI"
+                            );
+
+                            stopGeminiAudio();
+                        }
+
+                        // -----------------------------------------
+                        // USER STOPPED SPEAKING
+                        // -----------------------------------------
+
+                        if (
+                            rms <=
+                            SPEECH_THRESHOLD &&
+                            userIsSpeaking
+                        ) {
+
+                            userIsSpeaking =
+                                false;
+
+                            console.log(
+                                "🎤 User stopped speaking"
+                            );
+                        }
+
+                        // -----------------------------------------
+                        // CONVERT TO PCM16
+                        // -----------------------------------------
+
+                        const pcm16 =
+                            convertFloat32ToPCM16(
+                                inputData
+                            );
+
+                        const base64Audio =
+                            arrayBufferToBase64(
+                                pcm16.buffer
+                            );
+
+                        // -----------------------------------------
+                        // SEND AUDIO TO NODE
+                        // -----------------------------------------
+
+                        socket.send(
+                            JSON.stringify({
+                                type: "audio",
+                                data: base64Audio
+                            })
+                        );
+                    };
+
+                status.textContent =
+                    "Listening... Speak now.";
+
+            } catch (error) {
+
+                console.error(
+                    "Voice test error:",
+                    error
+                );
+
+                status.textContent =
+                    "Microphone error";
+
+                startButton.disabled =
+                    false;
+            }
+        });
+
+
+        // =====================================================
+        // STOP GEMINI AUDIO
+        // =====================================================
+
+        function stopGeminiAudio() {
+
+            console.log(
+                "Stopping Gemini audio..."
+            );
+
+            // -----------------------------------------
+            // 1. CLEAR WAITING AUDIO
+            // -----------------------------------------
+
+            audioQueue.length = 0;
+
+            // -----------------------------------------
+            // 2. STOP CURRENT AUDIO
+            // -----------------------------------------
+
+            if (currentSource) {
+
+                try {
+
+                    currentSource.stop();
+
+                } catch (error) {
+
+                    // Source may already be stopped
+                }
+
+                currentSource =
+                    null;
+            }
+
+            // -----------------------------------------
+            // 3. RESET PLAYBACK STATE
+            // -----------------------------------------
+
+            isPlaying = false;
+
+            console.log(
+                "AI audio stopped"
+            );
+        }
+
+
+        // =====================================================
+        // CONVERT FLOAT32 → PCM16
+        // =====================================================
+
+        function convertFloat32ToPCM16(
+            float32Array
+        ) {
+
+            const buffer =
+                new ArrayBuffer(
+                    float32Array.length * 2
+                );
+
+            const view =
+                new DataView(buffer);
+
+            for (
+                let i = 0;
+                i < float32Array.length;
+                i++
+            ) {
+
+                let sample =
+                    Math.max(
+                        -1,
+                        Math.min(
+                            1,
+                            float32Array[i]
+                        )
+                    );
+
+                sample =
+                    sample < 0
+                        ? sample * 0x8000
+                        : sample * 0x7fff;
+
+                view.setInt16(
+                    i * 2,
+                    sample,
+                    true
+                );
+            }
+
+            return new Int16Array(
+                buffer
+            );
+        }
+
+
+        // =====================================================
+        // ARRAYBUFFER → BASE64
+        // =====================================================
+
+        function arrayBufferToBase64(
+            buffer
+        ) {
+
+            let binary = "";
+
+            const bytes =
+                new Uint8Array(buffer);
+
+            const chunkSize =
+                0x8000;
+
+            for (
+                let i = 0;
+                i < bytes.length;
+                i += chunkSize
+            ) {
+
+                const chunk =
+                    bytes.subarray(
+                        i,
+                        Math.min(
+                            i + chunkSize,
+                            bytes.length
+                        )
+                    );
+
+                binary +=
+                    String.fromCharCode(
+                        ...chunk
+                    );
+            }
+
+            return btoa(binary);
+        }
+
+
+        // =====================================================
+        // PLAY NEXT AI AUDIO
+        // =====================================================
+
+        async function playNextAudio() {
+
+            // Another audio chunk is currently playing
+            if (isPlaying) {
+                return;
+            }
+
+            // Nothing waiting
+            if (
+                audioQueue.length === 0
+            ) {
+                return;
+            }
+
+            isPlaying = true;
+
+            const base64Audio =
+                audioQueue.shift();
+
+            try {
+
+                await playGeminiAudio(
+                    base64Audio
+                );
+
+            } catch (error) {
+
+                console.error(
+                    "Audio playback error:",
+                    error
+                );
+            }
+
+            // -----------------------------------------
+            // IMPORTANT:
+            // Only reset if this wasn't interrupted
+            // -----------------------------------------
+
+            isPlaying = false;
+
+            currentSource = null;
+
+            // Play next chunk
+            playNextAudio();
+        }
+
+
+        // =====================================================
+        // PLAY GEMINI PCM16 24kHz AUDIO
+        // =====================================================
+
+        function playGeminiAudio(
+            base64Audio
+        ) {
+
+            return new Promise(
+                (resolve, reject) => {
+
+                    try {
+
+                        // -----------------------------------------
+                        // Decode Base64
+                        // -----------------------------------------
+
+                        const binaryString =
+                            atob(base64Audio);
+
+                        const bytes =
+                            new Uint8Array(
+                                binaryString.length
+                            );
+
+                        for (
+                            let i = 0;
+                            i <
+                            binaryString.length;
+                            i++
+                        ) {
+
+                            bytes[i] =
+                                binaryString.charCodeAt(
+                                    i
+                                );
+                        }
+
+                        // -----------------------------------------
+                        // PCM16
+                        // -----------------------------------------
+
+                        const pcm16 =
+                            new Int16Array(
+                                bytes.buffer
+                            );
+
+                        const float32 =
+                            new Float32Array(
+                                pcm16.length
+                            );
+
+                        for (
+                            let i = 0;
+                            i < pcm16.length;
+                            i++
+                        ) {
+
+                            float32[i] =
+                                pcm16[i] /
+                                32768;
+                        }
+
+                        // -----------------------------------------
+                        // GEMINI OUTPUT = 24kHz
+                        // -----------------------------------------
+
+                        const audioBuffer =
+                            audioContext.createBuffer(
+                                1,
+                                float32.length,
+                                24000
+                            );
+
+                        audioBuffer.copyToChannel(
+                            float32,
+                            0
+                        );
+
+                        // -----------------------------------------
+                        // CREATE AUDIO SOURCE
+                        // -----------------------------------------
+
+                        const source =
+                            audioContext
+                                .createBufferSource();
+
+                        // IMPORTANT:
+                        // Keep reference so we can stop it
+                        currentSource =
+                            source;
+
+                        source.buffer =
+                            audioBuffer;
+
+                        source.connect(
+                            audioContext.destination
+                        );
+
+                        // -----------------------------------------
+                        // AUDIO FINISHED
+                        // -----------------------------------------
+
+                        source.onended =
+                            () => {
+
+                                if (
+                                    currentSource ===
+                                    source
+                                ) {
+
+                                    currentSource =
+                                        null;
+                                }
+
+                                resolve();
+                            };
+
+                        // -----------------------------------------
+                        // START
+                        // -----------------------------------------
+
+                        source.start();
+
+                    } catch (error) {
+
+                        reject(error);
+                    }
+                }
+            );
+        }
+
+    </script>
+
+</body>
+
+</html>
