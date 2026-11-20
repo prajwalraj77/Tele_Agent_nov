@@ -2,7 +2,6 @@ const {
   buildTejoEvKnowledgePrompt,
 } = require("../tejoEv/knowledge");
 
-
 const TEJO_EV_INSTRUCTIONS = `
 You are a friendly, natural Tejo EV voice representative handling INBOUND customer calls.
 
@@ -261,7 +260,7 @@ Do NOT ask all of these questions together.
 
 Ask one question at a time.
 
-Only ask questions that are relevant to the customer's current need.
+Only ask questions that help with the current conversation.
 
 Do not ask for information the customer has already provided.
 
@@ -556,12 +555,16 @@ conversation outcome.
 `;
 
 
-function buildCustomerContext(customer, conversationHistory = []) {
+function buildCustomerContext(
+  customer,
+  conversationHistory = [],
+) {
   const hasHistory =
     Array.isArray(conversationHistory) &&
     conversationHistory.length > 0;
 
-  const customerName = customer?.name || null;
+  const customerName =
+    customer?.name || null;
 
   let context = `
 CUSTOMER CONTEXT
@@ -630,12 +633,56 @@ unless the customer's reason for calling makes it relevant.
 }
 
 
-function buildInitialGreeting(customer, conversationHistory = []) {
+/**
+ * Builds the exact system instruction expected by geminiLive.js.
+ *
+ * This function is intentionally kept as the adapter between
+ * Gemini Live session configuration and the reusable prompt builders.
+ */
+function buildSystemInstruction({
+  customerExists = false,
+  firstName = null,
+  previousSummary = null,
+}) {
+  const customerContext = buildCustomerContext(
+    {
+      name: firstName,
+    },
+    previousSummary
+      ? [
+          {
+            type: "previous_summary",
+            text: previousSummary,
+          },
+        ]
+      : [],
+  );
+
+  return `
+${TEJO_EV_INSTRUCTIONS}
+
+============================================================
+CURRENT CALL CONTEXT
+============================================================
+
+Customer exists in CRM:
+${customerExists ? "Yes" : "No"}
+
+${customerContext}
+`;
+}
+
+
+function buildInitialGreeting(
+  customer,
+  conversationHistory = [],
+) {
   const hasHistory =
     Array.isArray(conversationHistory) &&
     conversationHistory.length > 0;
 
-  const customerName = customer?.name || null;
+  const customerName =
+    customer?.name || null;
 
   if (hasHistory) {
     return `
@@ -741,6 +788,7 @@ follow the normal call-ending behavior.
 
 module.exports = {
   TEJO_EV_INSTRUCTIONS,
+  buildSystemInstruction,
   buildCustomerContext,
   buildInitialGreeting,
   buildNoResponseReminderPrompt,

@@ -1,7 +1,9 @@
+//
 // ============================================================
 // VOICE AGENT ORCHESTRATOR
 // ============================================================
 // Connects Gemini Live with the Exotel call manager.
+// Handles the inbound customer conversation lifecycle.
 // ============================================================
 
 const {
@@ -11,6 +13,7 @@ const {
 const {
   buildInitialGreeting,
 } = require("../services/gemini/geminiPrompts");
+
 
 async function createVoiceAgent({
   customerExists = false,
@@ -31,6 +34,10 @@ async function createVoiceAgent({
   let closed = false;
 
   try {
+    // ========================================================
+    // CREATE GEMINI LIVE SESSION
+    // ========================================================
+
     geminiSession = await createGeminiLiveSession({
       customerExists,
       customerName,
@@ -98,6 +105,10 @@ async function createVoiceAgent({
       },
     });
 
+    // ========================================================
+    // SESSION MAY HAVE BEEN CLOSED DURING INITIALIZATION
+    // ========================================================
+
     if (closed) {
       geminiSession.close();
 
@@ -108,13 +119,33 @@ async function createVoiceAgent({
 
     console.log("Voice Agent created successfully.");
 
-    const greeting = buildInitialGreeting({
-      customerExists,
-      firstName,
-      previousSummary,
-    });
+    // ========================================================
+    // START INBOUND CONVERSATION
+    // ========================================================
 
+    const greeting = buildInitialGreeting(
+      {
+        name:
+          firstName ||
+          customerName ||
+          null,
+      },
+      previousSummary
+        ? [
+            {
+              type: "previous_summary",
+              text: previousSummary,
+            },
+          ]
+        : [],
+    );
+
+    // Trigger the initial inbound greeting.
     geminiSession.sendText(greeting);
+
+    // ========================================================
+    // RETURN VOICE AGENT INTERFACE
+    // ========================================================
 
     return {
       sendAudio(base64Audio) {
@@ -144,7 +175,9 @@ async function createVoiceAgent({
       isOpen() {
         return (
           !closed &&
-          Boolean(geminiSession?.isOpen())
+          Boolean(
+            geminiSession?.isOpen(),
+          )
         );
       },
 
@@ -175,6 +208,7 @@ async function createVoiceAgent({
     throw error;
   }
 }
+
 
 module.exports = {
   createVoiceAgent,

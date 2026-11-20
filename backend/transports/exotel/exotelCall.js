@@ -109,7 +109,7 @@ function createExotelCallManager({
 
             phoneNumber: customerContext.phoneNumber || phoneNumber || null,
 
-            direction: "outbound",
+           direction: "inbound",
 
             status: "answered",
 
