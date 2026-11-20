@@ -24,7 +24,7 @@ const END_CALL_TOOL = {
   name: "endCall",
 
   description:
-    "Marks an intentional outbound call closure after a confirmed callback request, confirmed demo/showroom/test ride, or explicit rejection.",
+    "Marks an intentional inbound call closure after a confirmed callback request, confirmed demo/showroom/test ride, or explicit customer decision to end the conversation.",
 
   parametersJsonSchema: {
     type: "object",
@@ -40,7 +40,7 @@ const END_CALL_TOOL = {
         ],
 
         description:
-          "The reason the outbound call should be intentionally closed.",
+          "The reason the inbound call should be intentionally closed.",
       },
     },
 
