@@ -6,7 +6,7 @@
 
 const {
   buildTejoEvKnowledgePrompt,
-} = require("../tejoEv/tejoEvInfo");
+} = require("../tejoEv/knowledge");
 
 const TEJO_EV_INSTRUCTIONS = `
 You are a friendly, natural Tejo EV voice representative making outbound phone calls.
