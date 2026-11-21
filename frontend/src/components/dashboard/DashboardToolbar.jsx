@@ -75,7 +75,7 @@ function DashboardToolbar({
 
         <button
           onClick={onNewCall}
-          className="flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 text-sm font-semibold text-white transition hover:bg-slate-800"
+          className="flex h-11 items-center justify-center gap-2 rounded-xl bg-white/10 backdrop-blur border border-white/20 px-5 text-sm font-semibold text-white transition hover:bg-white/20 hover:text-white"
         >
           <Icon name="plus" size={17} />
           New Call

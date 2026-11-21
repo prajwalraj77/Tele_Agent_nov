@@ -8,12 +8,13 @@ import CustomerTable from "./CustomerTable";
 import QuickActions from "./QuickActions";
 import AgentStatusCard from "./AgentStatusCard";
 import TodayActivity from "./TodayActivity";
+import CallModal from "../calls/CallModal";
 
 import Sidebar from "../layout/Sidebar";
 import Header from "../layout/Header";
 
 import { getCustomers } from "../../services/customerService";
-import { getCalls } from "../../services/callService";
+import { getCalls, startCall } from "../../services/callService";
 
 function Dashboard() {
   const [customers, setCustomers] = useState([]);
@@ -25,6 +26,8 @@ function Dashboard() {
   const [followUp, setFollowUp] = useState("");
 
   const [loading, setLoading] = useState(true);
+  const [callModalOpen, setCallModalOpen] = useState(false);
+  const [activeCallStatus, setActiveCallStatus] = useState(null);
 
   // Load customers and calls from backend
   const loadDashboard = async () => {
@@ -190,9 +193,21 @@ function Dashboard() {
   }, [calls]);
 
   const handleNewCall = () => {
-    window.alert(
-      "New Call action is ready. We will connect this to the existing CallModal next."
-    );
+    setCallModalOpen(true);
+  };
+
+  const handleStartCallSubmit = async (phoneNumber) => {
+    try {
+      setActiveCallStatus({ phoneNumber, status: "initiating" });
+      const response = await startCall(phoneNumber);
+      setActiveCallStatus({ phoneNumber, status: "active", response });
+      setCallModalOpen(false);
+      // Reload dashboard data after starting call
+      await loadDashboard();
+    } catch (error) {
+      setActiveCallStatus({ phoneNumber, status: "error", message: error.message });
+      throw error;
+    }
   };
 
   return (
@@ -248,7 +263,7 @@ function Dashboard() {
               </div>
 
               <div className="mt-5">
-                <CustomerTable customers={recentCustomers} />
+                <CustomerTable customers={recentCustomers} onCall={handleStartCallSubmit} />
               </div>
 
               <div className="mt-5 grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
@@ -259,6 +274,12 @@ function Dashboard() {
 
                 <AgentStatusCard />
               </div>
+
+              <CallModal
+                open={callModalOpen}
+                onClose={() => setCallModalOpen(false)}
+                onCall={handleStartCallSubmit}
+              />
             </div>
           </main>
         </div>

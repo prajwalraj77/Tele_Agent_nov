@@ -25,7 +25,7 @@ function formatDuration(seconds) {
   return `${minutes}m ${remainingSeconds}s`;
 }
 
-function CustomerTable({ customers }) {
+function CustomerTable({ customers, onCall }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_4px_24px_rgba(15,23,42,0.03)]">
       <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
@@ -75,6 +75,9 @@ function CustomerTable({ customers }) {
               <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                 Language
               </th>
+              <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                Action
+              </th>
             </tr>
           </thead>
 
@@ -82,7 +85,7 @@ function CustomerTable({ customers }) {
             {customers.length === 0 ? (
               <tr>
                 <td
-                  colSpan="7"
+                  colSpan="8"
                   className="px-5 py-12 text-center text-sm text-slate-400"
                 >
                   No customers found.
@@ -146,6 +149,28 @@ function CustomerTable({ customers }) {
 
                   <td className="px-5 py-4 text-sm capitalize text-slate-600">
                     {customer.latestLanguage || "—"}
+                  </td>
+                  <td className="px-5 py-4 flex gap-2">
+                    <button
+                      onClick={() => onCall(customer.phoneNumber)}
+                      className="flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 active:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={!customer.phoneNumber}
+                    >
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L17 14l-1.13.565a1 1 0 01-1.447-.894v-3.5l-2.36 1.18a1 1 0 01-1.447-.894V6.618a1 1 0 011.447-.894zM20 13.5V19a1 1 0 01-1 1H5a1 1 0 01-1 1v-9a1 1 0 011-1h.408l2 1a1 1 0 01.586 1.414L9 11.586V13a1 1 0 01-1 1H5a1 1 0 01-1 1v-5a1 1 0 011-1h8a1 1 0 011 1v1.414z"
+                        />
+                      </svg>
+                      Call Now
+                    </button>
                   </td>
                 </tr>
               ))

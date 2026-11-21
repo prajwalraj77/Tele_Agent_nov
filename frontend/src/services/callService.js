@@ -37,3 +37,18 @@ export async function startCall(
     },
   );
 }
+
+// Retrieves pending follow-ups from the backend.
+export async function getPendingFollowUps() {
+  const response = await apiRequest("/api/call/follow-ups");
+
+  if (Array.isArray(response)) {
+    return response;
+  }
+
+  return (
+    response?.followUps ||
+    response?.data ||
+    []
+  );
+}

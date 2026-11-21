@@ -39,18 +39,20 @@ function QuickActions({ onNewCall }) {
           <button
             key={action.title}
             onClick={action.onClick}
-            className="flex w-full items-center gap-3 rounded-xl border border-slate-100 p-3 text-left transition hover:border-slate-200 hover:bg-slate-50"
+            className={`flex w-full items-center gap-3 rounded-xl border border-white/20 bg-white/10 backdrop-blur p-3 text-left transition hover:bg-white/20 hover:border-white/30 ${action.title === "Start New Call" ? "text-white border-blue-500/30" : "text-slate-600"}`}
           >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
+            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/20 ${
+              action.title === "Start New Call" ? "text-blue-400" : "text-slate-400"
+            }`}>
               <Icon name={action.icon} size={18} />
             </div>
 
             <div className="min-w-0">
-              <div className="text-sm font-semibold text-slate-800">
+              <div className={`text-sm font-semibold ${action.title === "Start New Call" ? "text-white" : "text-slate-800"}`}>
                 {action.title}
               </div>
 
-              <div className="mt-0.5 truncate text-xs text-slate-400">
+              <div className={`mt-0.5 truncate text-xs ${action.title === "Start New Call" ? "text-blue-200/70" : "text-slate-400"}`}>
                 {action.description}
               </div>
             </div>
