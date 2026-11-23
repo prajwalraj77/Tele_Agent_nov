@@ -8,7 +8,7 @@ function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
-    <header className="fixed top-0 left-0 right-0 h-[70px] z-40 flex items-center justify-between border-b border-white/30 bg-white/10 backdrop-blur-2xl px-6 lg:pl-64 lg:px-8">
+    <header className="fixed top-0 left-0 right-0 h-[70px] z-40 flex items-center justify-between border-b border-white/30 bg-white/10 backdrop-blur-2xl px-6 lg:left-64 lg:w-[calc(100%-64px)] lg:px-8">
       {/* Left: Brand + Navigation toggle */}
       <div className="flex items-center gap-4">
         <button

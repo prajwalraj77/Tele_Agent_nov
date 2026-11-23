@@ -14,6 +14,24 @@ const ai = new GoogleGenAI({
 
 const MODEL = "gemini-3.5-flash-lite";
 
+// Helper to extract JSON from markdown code fences
+function extractJsonFromResponse(text) {
+  if (!text || typeof text !== "string") {
+    throw new Error("Empty or invalid response from AI");
+  }
+
+  const trimmed = text.trim();
+
+  // Check for markdown code fences
+  const jsonMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (jsonMatch) {
+    return jsonMatch[1].trim();
+  }
+
+  // If no code fences, assume it's already JSON
+  return trimmed;
+}
+
 const VALID_OUTCOMES = [
   "normal",
   "callback_requested",
@@ -241,7 +259,7 @@ Return JSON only.
     );
 
     const analysis =
-      JSON.parse(text);
+      JSON.parse(extractJsonFromResponse(text));
 
     if (
       typeof analysis.summary !==
@@ -488,7 +506,7 @@ IMPORTANT:
     );
 
     const profile =
-      JSON.parse(text);
+      JSON.parse(extractJsonFromResponse(text));
 
     let conversationRate =
       Number(

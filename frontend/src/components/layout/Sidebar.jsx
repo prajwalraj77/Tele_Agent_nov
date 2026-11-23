@@ -24,8 +24,8 @@ function Sidebar() {
 
   return (
     <aside
-      className={`fixed inset-y-0 left-0 z-30 w-64 bg-slate-950 border-r border-white/10 transform transition-transform duration-300 lg:relative lg:translate-x-0 ${
-        collapsed ? "-translate-x-full" : "translate-x-0"
+      className={`fixed inset-y-0 left-0 z-50 w-64 bg-slate-950 border-r border-white/10 transform transition-transform duration-300 lg:translate-x-0 ${
+    collapsed ? "-translate-x-full" : "translate-x-0"
       }`}
     >
       <div className="flex h-[70px] items-center justify-between border-b border-white/10 px-6">
