@@ -121,6 +121,28 @@ async function listPendingFollowUps(
     .limit(limit);
 }
 
+// Gets all calls for a specific customer, sorted newest first.
+async function getCallsByCustomerId(
+  customerId,
+) {
+  // First try to find by customerId
+  let calls = await Call.find({ customerId })
+    .sort({ createdAt: -1 });
+  
+  // If no calls found, try to find by phoneNumber
+  // This handles cases where customerId wasn't set on the call record
+  if (calls.length === 0) {
+    const Customer = require("../models/Customer");
+    const customer = await Customer.findOne({ customerId });
+    if (customer && customer.phoneNumber) {
+      calls = await Call.find({ phoneNumber: customer.phoneNumber })
+        .sort({ createdAt: -1 });
+    }
+  }
+  
+  return calls;
+}
+
 module.exports = {
   createCall,
   updateCall,
@@ -129,4 +151,5 @@ module.exports = {
   getCallByExternalSid,
   listRecentCalls,
   listPendingFollowUps,
+  getCallsByCustomerId,
 };

@@ -22,6 +22,17 @@ export async function getCalls() {
   );
 }
 
+// Retrieves all calls for a specific customer.
+export async function getCallsByCustomerId(customerId) {
+  const response = await apiRequest(`/api/customers/${customerId}/details`);
+
+  return (
+    response?.calls ||
+    response?.data?.calls ||
+    []
+  );
+}
+
 // Starts a new outbound call.
 export async function startCall(
   phoneNumber,

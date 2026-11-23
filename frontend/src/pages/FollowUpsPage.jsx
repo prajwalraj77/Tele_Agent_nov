@@ -105,10 +105,10 @@ export default function FollowUpsPage() {
                   </div>
                   <div className="mt-3 flex justify-end">
                     <Link
-                      to={"/calls/" + (call.callId || call._id)}
+                      to={"/customers/" + (call.customerId || call._id)}
                       className="text-xs font-bold text-blue-400 hover:text-blue-300 transition-colors"
                     >
-                      View Call
+                      View Customer
                     </Link>
                   </div>
                 </div>

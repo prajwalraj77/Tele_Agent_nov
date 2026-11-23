@@ -21,3 +21,14 @@ export async function getCustomers() {
     []
   );
 }
+
+// Retrieves detailed customer info with call history.
+export async function getCustomerDetails(customerId) {
+  const response = await apiRequest(`/api/customers/${customerId}/details`);
+
+  return (
+    response?.data ||
+    response ||
+    {}
+  );
+}

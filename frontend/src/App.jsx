@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import DashboardPage from "./pages/DashboardPage";
 import CallsPage from "./pages/CallsPage";
 import CustomersPage from "./pages/CustomersPage";
+import CustomerDetailsPage from "./pages/CustomerDetailsPage";
 import FollowUpsPage from "./pages/FollowUpsPage";
 import AgentConfigPage from "./pages/AgentConfigPage";
 import KnowledgeBasePage from "./pages/KnowledgeBasePage";
@@ -16,6 +17,7 @@ function App() {
         <Route path="/" element={<DashboardPage />} />
         <Route path="/calls" element={<CallsPage />} />
         <Route path="/customers" element={<CustomersPage />} />
+        <Route path="/customers/:customerId" element={<CustomerDetailsPage />} />
         <Route path="/follow-ups" element={<FollowUpsPage />} />
         <Route path="/management/agent-configuration" element={<AgentConfigPage />} />
         <Route path="/management/knowledge-base" element={<KnowledgeBasePage />} />
