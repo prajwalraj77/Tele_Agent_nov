@@ -7,6 +7,7 @@ import Icon from "../common/Icon";
 const mainNavigation = [
   { label: "Dashboard", icon: "dashboard", path: "/" },
   { label: "Call Logs", icon: "phone", path: "/calls" },
+  { label: "Bulk Dial", icon: "phone", path: "/bulk" },
   { label: "Customers", icon: "users", path: "/customers" },
   { label: "Follow-ups", icon: "callback", path: "/follow-ups" },
 ];

@@ -24,6 +24,27 @@ const {
   listRecentCalls,
 } = require("../services/callService");
 
+// Bulk call service
+const {
+  parseAndNormalizeNumbers,
+  createBulkCall,
+  getBulkCall,
+  listBulkCalls,
+  pauseBulkCall,
+  resumeBulkCall,
+  cancelBulkCall,
+  getActiveBulkStatus,
+} = require("../services/call/bulkCallService");
+
+const {
+  waitForCallCompletion,
+  startBulkCallInBackground,
+} = require("../services/call/bulkCallProcessor");
+
+const {
+  getCallsByBulkId,
+} = require("../services/callService");
+
 // Initiates an outbound call.
 async function initiateCall(req, res) {
   let call = null;
@@ -50,8 +71,6 @@ async function initiateCall(req, res) {
       customerContext.customerExists,
     );
 
-    // Permanently block customers who explicitly said
-    // they are not interested.
     if (customerContext.doNotCall) {
       return res.status(409).json({
         success: false,
@@ -179,11 +198,9 @@ async function initiateCall(req, res) {
           customerContext.phoneNumber ||
           phoneNumber,
 
-        // Kept for current frontend compatibility.
         latestSummary:
           customerContext.previousSummary,
 
-        // New preferred field.
         conversationSummary:
           customerContext.previousSummary,
 
@@ -239,6 +256,202 @@ async function initiateCall(req, res) {
       error:
         error.response?.data ||
         error.message,
+    });
+  }
+}
+
+// Initiates a bulk call campaign
+async function initiateBulkCall(req, res) {
+  try {
+    const { name, phoneNumbers, config } = req.body;
+
+    if (!phoneNumbers || typeof phoneNumbers !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Phone numbers are required (paste multiple numbers separated by newlines, commas, or semicolons)",
+      });
+    }
+
+    const { numbers, errors } = parseAndNormalizeNumbers(phoneNumbers);
+
+    if (numbers.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No valid phone numbers found",
+        errors,
+      });
+    }
+
+    const bulkCall = await createBulkCall({
+      name: name || "Bulk Dial Campaign",
+      phoneNumbers: numbers,
+      config,
+    });
+
+    startBulkCallInBackground(bulkCall.bulkId);
+
+    return res.json({
+      success: true,
+      bulkId: bulkCall.bulkId,
+      status: "started",
+      totalNumbers: bulkCall.totalNumbers,
+      validNumbers: numbers.length,
+      errors: errors.length > 0 ? errors : undefined,
+      message: `Bulk dial campaign started with ${numbers.length} numbers`,
+    });
+  } catch (error) {
+    console.error("Bulk call initiation failed:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to initiate bulk call",
+      error: error.message,
+    });
+  }
+}
+
+// Get bulk call status
+async function getBulkCallStatus(req, res) {
+  try {
+    const { bulkId } = req.params;
+
+    const bulkCall = await getBulkCall(bulkId);
+    if (!bulkCall) {
+      return res.status(404).json({
+        success: false,
+        message: "Bulk call not found",
+      });
+    }
+
+    const activeStatus = getActiveBulkStatus(bulkId);
+
+    return res.json({
+      success: true,
+      bulkCall: {
+        ...bulkCall,
+        active: activeStatus,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to get bulk call status:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+}
+
+// List all bulk calls
+async function listBulkCallsHandler(req, res) {
+  try {
+    const limit = Number(req.query.limit) || 50;
+    const bulkCalls = await listBulkCalls(limit);
+
+    return res.json({
+      success: true,
+      bulkCalls,
+    });
+  } catch (error) {
+    console.error("Failed to list bulk calls:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+}
+
+// Pause bulk call
+async function pauseBulkCallHandler(req, res) {
+  try {
+    const { bulkId } = req.params;
+    const paused = pauseBulkCall(bulkId);
+
+    if (!paused) {
+      return res.status(404).json({
+        success: false,
+        message: "Bulk call not found or not running",
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "Bulk call paused",
+    });
+  } catch (error) {
+    console.error("Failed to pause bulk call:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+}
+
+// Resume bulk call
+async function resumeBulkCallHandler(req, res) {
+  try {
+    const { bulkId } = req.params;
+    const resumed = resumeBulkCall(bulkId);
+
+    if (!resumed) {
+      return res.status(404).json({
+        success: false,
+        message: "Bulk call not found or not running",
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "Bulk call resumed",
+    });
+  } catch (error) {
+    console.error("Failed to resume bulk call:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+}
+
+// Cancel bulk call
+async function cancelBulkCallHandler(req, res) {
+  try {
+    const { bulkId } = req.params;
+    const cancelled = cancelBulkCall(bulkId);
+
+    if (!cancelled) {
+      return res.status(404).json({
+        success: false,
+        message: "Bulk call not found or not running",
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "Bulk call cancelled",
+    });
+  } catch (error) {
+    console.error("Failed to cancel bulk call:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+}
+
+// Get calls for a bulk campaign
+async function getBulkCallCalls(req, res) {
+  try {
+    const { bulkId } = req.params;
+    const calls = await getCallsByBulkId(bulkId);
+
+    return res.json({
+      success: true,
+      calls,
+    });
+  } catch (error) {
+    console.error("Failed to get bulk call calls:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 }
@@ -302,6 +515,14 @@ async function getPendingFollowUps(
 
 module.exports = {
   initiateCall,
+  initiateBulkCall,
+  getBulkCallStatus,
+  listBulkCalls: listBulkCallsHandler,
+  pauseBulkCall: pauseBulkCallHandler,
+  resumeBulkCall: resumeBulkCallHandler,
+  cancelBulkCall: cancelBulkCallHandler,
+  getBulkCallCalls,
   getCalls,
   getPendingFollowUps,
+  waitForCallCompletion,
 };

@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 
 import DashboardPage from "./pages/DashboardPage";
 import CallsPage from "./pages/CallsPage";
+import BulkCallsPage from "./pages/BulkCallsPage";
+import BulkCallDetailPage from "./pages/BulkCallDetailPage";
 import CustomersPage from "./pages/CustomersPage";
 import CustomerDetailsPage from "./pages/CustomerDetailsPage";
 import FollowUpsPage from "./pages/FollowUpsPage";
@@ -16,6 +18,8 @@ function App() {
       <Routes>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/calls" element={<CallsPage />} />
+        <Route path="/bulk" element={<BulkCallsPage />} />
+        <Route path="/bulk/:bulkId" element={<BulkCallDetailPage />} />
         <Route path="/customers" element={<CustomersPage />} />
         <Route path="/customers/:customerId" element={<CustomerDetailsPage />} />
         <Route path="/follow-ups" element={<FollowUpsPage />} />

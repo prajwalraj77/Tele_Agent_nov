@@ -31,7 +31,7 @@ export default function AgentConfigPage() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-white/50 mb-2 uppercase">Language Model</label>
-                  <select className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/20 text-white focus:outline-none focus:ring-1 focus:ring-blue-500">
+                  <select className="w-full px-4 py-3 rounded-xl bg-green border border-white/20 text-black focus:outline-none focus:ring-1 focus:ring-blue-500">
                     <option>Gemini 3.1 Lite</option>
                     <option>Gemini 2.0 Flash</option>
                     <option>Gemini 1.5 Pro</option>

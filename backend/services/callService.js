@@ -143,6 +143,12 @@ async function getCallsByCustomerId(
   return calls;
 }
 
+// Gets all calls for a specific bulk campaign, sorted newest first.
+async function getCallsByBulkId(bulkId) {
+  return await Call.find({ bulkId })
+    .sort({ createdAt: -1 });
+}
+
 module.exports = {
   createCall,
   updateCall,
@@ -152,4 +158,5 @@ module.exports = {
   listRecentCalls,
   listPendingFollowUps,
   getCallsByCustomerId,
+  getCallsByBulkId,
 };

@@ -612,16 +612,59 @@ async function updateCustomerAfterCall(
   return customer;
 }
 
-// Returns recent customers.
+// Returns recent customers with call statistics.
 async function listCustomers(
   limit = 50,
 ) {
-  return await Customer.find({})
+  const customers = await Customer.find({})
     .sort({
       updatedAt:
         -1,
     })
-    .limit(limit);
+    .limit(limit)
+    .lean();
+
+  if (customers.length === 0) {
+    return [];
+  }
+
+  // Get call statistics for all customers
+  const customerIds = customers.map((c) => c.customerId);
+  const Call = require("../models/Call");
+
+  const calls = await Call.find({ customerId: { $in: customerIds } }).lean();
+
+  // Group calls by customerId
+  const callsByCustomer = {};
+  for (const call of calls) {
+    if (!callsByCustomer[call.customerId]) {
+      callsByCustomer[call.customerId] = [];
+    }
+    callsByCustomer[call.customerId].push(call);
+  }
+
+  // Enrich customers with call stats
+  const enrichedCustomers = customers.map((customer) => {
+    const customerCalls = callsByCustomer[customer.customerId] || [];
+    const totalCalls = customerCalls.length;
+    const inboundCalls = customerCalls.filter((c) => c.direction === "inbound").length;
+    const outboundCalls = customerCalls.filter((c) => c.direction === "outbound").length;
+    const latestCall = customerCalls.sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt))[0] || null;
+
+    return {
+      ...customer,
+      callStats: {
+        totalCalls,
+        inboundCalls,
+        outboundCalls,
+      },
+      latestCallDirection: latestCall?.direction || null,
+      latestCallStatus: latestCall?.status || null,
+      latestCallAt: latestCall?.startedAt || customer.latestCallAt || null,
+    };
+  });
+
+  return enrichedCustomers;
 }
 
 module.exports = {

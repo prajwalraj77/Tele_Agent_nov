@@ -27,6 +27,12 @@ const callSchema = new mongoose.Schema(
       index: true,
     },
 
+    bulkId: {
+      type: String,
+      default: null,
+      index: true,
+    },
+
     phoneNumber: {
       type: String,
       default: null,
