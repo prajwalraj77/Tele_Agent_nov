@@ -33,8 +33,12 @@ const {
   pauseBulkCall,
   resumeBulkCall,
   cancelBulkCall,
-  getActiveBulkStatus,
 } = require("../services/call/bulkCallService");
+
+// Bulk call processor (for active status)
+const {
+  getActiveBulkStatus,
+} = require("../services/call/bulkCallProcessor");
 
 const {
   waitForCallCompletion,

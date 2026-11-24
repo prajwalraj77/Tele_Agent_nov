@@ -252,7 +252,7 @@ function BulkCallDetailPage() {
                 <div className="rounded-2xl bg-white/5 backdrop-blur border border-white/10 p-5">
                   <h4 className="text-sm font-bold text-white/50 uppercase tracking-wider mb-3 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-white/30" /> Pending ({pendingNumbers.length})</h4>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-                    {pendingNumbers.map((n, i) => <div key={i} className="font-mono text-white/60 bg-white/5 p-2 rounded-lg">{n.original} → +{n.normalized}</div>)}
+                    {pendingNumbers.map((n, i) => <div key={i} className="font-mono text-white/60 bg-white/5 p-2 rounded-lg">{n.original} → {`${n.normalized.startsWith("0") ? "+91"+n.normalized.slice(1) : n.normalized.startsWith("91") ? "+"+n.normalized : "+91"+n.normalized}`}</div>)}
                   </div>
                 </div>
               )}
@@ -260,7 +260,7 @@ function BulkCallDetailPage() {
                 <div className="rounded-2xl bg-white/5 backdrop-blur border border-blue-500/20 p-5 animate-pulse">
                   <h4 className="text-sm font-bold text-blue-400 uppercase tracking-wider mb-3 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-blue-400" /> Currently Calling ({callingNumbers.length})</h4>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-                    {callingNumbers.map((n, i) => <div key={i} className="font-mono text-blue-400 bg-blue-500/5 p-2 rounded-lg border border-blue-500/10">{n.original} → +{n.normalized}</div>)}
+                    {callingNumbers.map((n, i) => <div key={i} className="font-mono text-blue-400 bg-blue-500/5 p-2 rounded-lg border border-blue-500/10">{n.original} → {`${n.normalized.startsWith("0") ? "+91"+n.normalized.slice(1) : n.normalized.startsWith("91") ? "+"+n.normalized : "+91"+n.normalized}`}</div>)}
                   </div>
                 </div>
               )}
@@ -268,7 +268,7 @@ function BulkCallDetailPage() {
                 <div className="rounded-2xl bg-white/5 backdrop-blur border border-emerald-500/20 p-5">
                   <h4 className="text-sm font-bold text-emerald-400 uppercase tracking-wider mb-3 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> Answered ({completedNumbers.length})</h4>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-                    {completedNumbers.map((n, i) => <div key={i} className="font-mono text-emerald-400 bg-emerald-500/5 p-2 rounded-lg border border-emerald-500/10">{n.original} → +{n.normalized} ({n.durationSeconds || 0}s)</div>)}
+                    {completedNumbers.map((n, i) => <div key={i} className="font-mono text-emerald-400 bg-emerald-500/5 p-2 rounded-lg border border-emerald-500/10">{n.original} → {`${n.normalized.startsWith("0") ? "+91"+n.normalized.slice(1) : n.normalized.startsWith("91") ? "+"+n.normalized : "+91"+n.normalized}`} ({n.durationSeconds || 0}s)</div>)}
                   </div>
                 </div>
               )}
@@ -276,7 +276,7 @@ function BulkCallDetailPage() {
                 <div className="rounded-2xl bg-white/5 backdrop-blur border border-amber-500/20 p-5">
                   <h4 className="text-sm font-bold text-amber-400 uppercase tracking-wider mb-3 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-400" /> No Answer ({noAnswerNumbers.length})</h4>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-                    {noAnswerNumbers.map((n, i) => <div key={i} className="font-mono text-amber-400 bg-amber-500/5 p-2 rounded-lg border border-amber-500/10">{n.original} → +{n.normalized}</div>)}
+                    {noAnswerNumbers.map((n, i) => <div key={i} className="font-mono text-amber-400 bg-amber-500/5 p-2 rounded-lg border border-amber-500/10">{n.original} → {`${n.normalized.startsWith("0") ? "+91"+n.normalized.slice(1) : n.normalized.startsWith("91") ? "+"+n.normalized : "+91"+n.normalized}`}</div>)}
                   </div>
                 </div>
               )}
@@ -284,7 +284,7 @@ function BulkCallDetailPage() {
                 <div className="rounded-2xl bg-white/5 backdrop-blur border border-rose-500/20 p-5">
                   <h4 className="text-sm font-bold text-rose-400 uppercase tracking-wider mb-3 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-rose-400" /> Failed ({failedNumbers.length})</h4>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-                    {failedNumbers.map((n, i) => <div key={i} className="font-mono text-rose-400 bg-rose-500/5 p-2 rounded-lg border border-rose-500/10" title={n.error}>{n.original} → +{n.normalized}</div>)}
+                    {failedNumbers.map((n, i) => <div key={i} className="font-mono text-rose-400 bg-rose-500/5 p-2 rounded-lg border border-rose-500/10" title={n.error}>{n.original} → {`${n.normalized.startsWith("0") ? "+91"+n.normalized.slice(1) : n.normalized.startsWith("91") ? "+"+n.normalized : "+91"+n.normalized}`}</div>)}
                   </div>
                 </div>
               )}
@@ -292,7 +292,7 @@ function BulkCallDetailPage() {
                 <div className="rounded-2xl bg-white/5 backdrop-blur border border-slate-500/20 p-5">
                   <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-slate-400" /> Skipped ({skippedNumbers.length})</h4>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-                    {skippedNumbers.map((n, i) => <div key={i} className="font-mono text-slate-400 bg-slate-500/5 p-2 rounded-lg border border-slate-500/10">{n.original} → +{n.normalized}</div>)}
+                    {skippedNumbers.map((n, i) => <div key={i} className="font-mono text-slate-400 bg-slate-500/5 p-2 rounded-lg border border-slate-500/10">{n.original} → {`${n.normalized.startsWith("0") ? "+91"+n.normalized.slice(1) : n.normalized.startsWith("91") ? "+"+n.normalized : "+91"+n.normalized}`}</div>)}
                   </div>
                 </div>
               )}

@@ -207,7 +207,7 @@ function BulkCallModal({
                       <span className="text-slate-400">{i + 1}.</span>
                       <span>{item.original}</span>
                       <span className="text-emerald-500">→</span>
-                      <span className="text-emerald-400">+{item.normalized}</span>
+                      <span className="text-emerald-400">{`${item.normalized.startsWith("0") ? "+91"+item.normalized.slice(1) : item.normalized.startsWith("91") ? "+"+item.normalized : "+91"+item.normalized}`}</span>
                     </div>
                   ))}
                 </div>

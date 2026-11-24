@@ -1,117 +1,202 @@
 // ============================================================
 // CUSTOMER CONTROLLER
 // ============================================================
-// This file handles API requests for retrieving customers.
-//
-// It receives the request from the frontend and uses
-// customerService.js to fetch customer records.
-// ============================================================
 
-// Gets customer records from MongoDB.
-const { listCustomers, getCustomerById } = require("../services/customerService");
-const { getCallsByCustomerId } = require("../services/callService");
-const Customer = require("../models/Customer");
+const {
+  listCustomers,
+  getCustomerById,
+} = require("../services/customerService");
+
+const {
+  getCallsByCustomerId,
+} = require("../services/callService");
+
+const Customer =
+  require("../models/Customer");
+
 
 // ============================================================
 // GET CUSTOMERS
 // ============================================================
-// Purpose:
-// Returns a list of customers to the frontend.
-//
-// Optional query parameter:
-// ?limit=50
-//
-// Flow:
-// Frontend → getCustomers() → customerService → MongoDB
-// ============================================================
 
 async function getCustomers(req, res) {
   try {
-    // Get the requested number of customers.
-    // Use 50 if no limit was provided.
-    const limit = Number(req.query.limit) || 50;
+    const requestedLimit =
+      Number(req.query.limit);
 
-    // Ask customerService to fetch the customers.
-    const customers = await listCustomers(limit);
+    const limit =
+      Number.isFinite(requestedLimit) &&
+      requestedLimit > 0
+        ? Math.min(requestedLimit, 200)
+        : 50;
 
-    // Send the customer list back to the frontend.
+    const customers =
+      await listCustomers(limit);
+
     return res.json({
       success: true,
-
       customers,
     });
   } catch (error) {
-    // Log the error if fetching customers fails.
-    console.error("Failed to list customers:", error);
+    console.error(
+      "Failed to list customers:",
+      error,
+    );
 
-    // Send an error response to the frontend.
     return res.status(500).json({
       success: false,
-
-      message: error.message,
+      message:
+        "Failed to load customers.",
     });
   }
 }
 
+
 // ============================================================
 // GET CUSTOMER DETAILS
 // ============================================================
-// Purpose:
-// Returns detailed customer info with all call history.
-//
-// Flow:
-// Frontend → getCustomerDetails() → customerService + callService → MongoDB
-// ============================================================
 
-async function getCustomerDetails(req, res) {
+async function getCustomerDetails(
+  req,
+  res,
+) {
   try {
-    const { customerId } = req.params;
+    const {
+      customerId,
+    } = req.params;
 
     if (!customerId) {
       return res.status(400).json({
         success: false,
-        message: "Customer ID is required",
+        message:
+          "Customer ID is required",
       });
     }
 
-    // Check if the ID is a MongoDB ObjectId (24 hex chars) or a customerId (CUS_xxx)
-    const isMongoId = /^[0-9a-fA-F]{24}$/.test(customerId);
-    
-    // Fetch customer - try both _id and customerId
-    let customer;
+    /*
+     * The frontend can send either:
+     *
+     * Mongo ObjectId
+     * or
+     * CUS_xxxxx
+     */
+    const isMongoId =
+      /^[0-9a-fA-F]{24}$/.test(
+        customerId,
+      );
+
+    let customer = null;
+
     if (isMongoId) {
-      customer = await Customer.findById(customerId);
+      customer =
+        await Customer.findById(
+          customerId,
+        );
     } else {
-      customer = await getCustomerById(customerId);
+      customer =
+        await getCustomerById(
+          customerId,
+        );
     }
 
     if (!customer) {
       return res.status(404).json({
         success: false,
-        message: "Customer not found",
+        message:
+          "Customer not found",
       });
     }
 
-    // Fetch all calls for this customer using customerId field
-    const calls = await getCallsByCustomerId(customer.customerId);
+    /*
+     * Get all calls belonging to this
+     * customer.
+     *
+     * getCallsByCustomerId already handles
+     * the customerId -> phone fallback.
+     */
+    const calls =
+      await getCallsByCustomerId(
+        customer.customerId,
+      );
 
-    // Calculate call statistics
-    const totalCalls = calls.length;
-    const inboundCalls = calls.filter((c) => c.direction === "inbound").length;
-    const outboundCalls = calls.filter((c) => c.direction === "outbound").length;
-    const completedCalls = calls.filter((c) => c.status === "completed").length;
-    const failedCalls = calls.filter((c) => c.status === "failed").length;
+    /*
+     * Sort again here so the controller
+     * does not depend on the service
+     * implementation order.
+     */
+    const sortedCalls =
+      [...calls].sort(
+        (a, b) => {
+          const dateA =
+            new Date(
+              a.startedAt ||
+                a.createdAt ||
+                a.endedAt ||
+                0,
+            ).getTime();
 
-    // Get the last call (most recent)
-    const lastCall = calls[0] || null;
+          const dateB =
+            new Date(
+              b.startedAt ||
+                b.createdAt ||
+                b.endedAt ||
+                0,
+            ).getTime();
 
-    // Check if any call has follow-up required
-    const hasFollowUp = calls.some((c) => c.followUpRequired === true);
+          return dateB - dateA;
+        },
+      );
+
+    const totalCalls =
+      sortedCalls.length;
+
+    const inboundCalls =
+      sortedCalls.filter(
+        (call) =>
+          call.direction ===
+          "inbound",
+      ).length;
+
+    const outboundCalls =
+      sortedCalls.filter(
+        (call) =>
+          call.direction ===
+          "outbound",
+      ).length;
+
+    const completedCalls =
+      sortedCalls.filter(
+        (call) =>
+          call.status ===
+          "completed",
+      ).length;
+
+    const failedCalls =
+      sortedCalls.filter(
+        (call) =>
+          call.status ===
+          "failed",
+      ).length;
+
+    const lastCall =
+      sortedCalls[0] ||
+      null;
+
+    const hasFollowUp =
+      sortedCalls.some(
+        (call) =>
+          call.followUpRequired ===
+          true,
+      );
 
     return res.json({
       success: true,
+
       customer,
-      calls,
+
+      calls:
+        sortedCalls,
+
       stats: {
         totalCalls,
         inboundCalls,
@@ -119,17 +204,25 @@ async function getCustomerDetails(req, res) {
         completedCalls,
         failedCalls,
       },
+
       lastCall,
+
       hasFollowUp,
     });
   } catch (error) {
-    console.error("Failed to get customer details:", error);
+    console.error(
+      "Failed to get customer details:",
+      error,
+    );
+
     return res.status(500).json({
       success: false,
-      message: error.message,
+      message:
+        "Failed to load customer details.",
     });
   }
 }
+
 
 module.exports = {
   getCustomers,

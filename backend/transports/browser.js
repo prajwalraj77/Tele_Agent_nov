@@ -11,8 +11,57 @@ const {
 } = require("../services/customerService");
 
 
-
 const { createCall } = require("../services/callService");
+
+// ============================================================
+// EXTRACT CUSTOMER NAME FROM TRANSCRIPT
+// ============================================================
+// Simple heuristic to extract a person's name from speech.
+// Returns the first capitalized word sequence that looks like a name.
+function extractCustomerName(text) {
+  if (!text || typeof text !== "string") {
+    return null;
+  }
+
+  const cleaned = text.trim();
+  if (!cleaned) {
+    return null;
+  }
+
+  // Common patterns for name introduction in Indian context
+  const patterns = [
+    /^(?:my name is|i am|i'm|this is|name is|call me)\s+([A-Za-z][a-z]+(?:\s+[A-Za-z][a-z]+)*)/i,
+    /^([A-Za-z][a-z]+(?:\s+[A-Za-z][a-z]+){0,2})\s*(?:here|speaking|calling)?$/i,
+    /^([A-Za-z][a-z]+(?:\s+[A-Za-z][a-z]+){0,2})$/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = cleaned.match(pattern);
+    if (match && match[1]) {
+      const name = match[1].trim();
+      // Filter out common non-names
+      const invalidNames = new Set([
+        "yes", "no", "okay", "ok", "hello", "hi", "hey",
+        "thanks", "thank you", "sure", "fine", "good", "bad",
+        "maybe", "don't know", "not sure", "nothing", "none",
+      ]);
+      if (!invalidNames.has(name.toLowerCase()) && name.length >= 2) {
+        return name;
+      }
+    }
+  }
+
+  // Fallback: if transcript is short (1-3 words) and looks like a name
+  const words = cleaned.split(/\s+/);
+  if (words.length >= 1 && words.length <= 3) {
+    const allCapitalized = words.every(w => /^[A-Z][a-z]+$/.test(w));
+    if (allCapitalized) {
+      return cleaned;
+    }
+  }
+
+  return null;
+}
 
 const { analyzeCall } = require("../services/callAnalysis");
 
@@ -31,8 +80,10 @@ async function handleBrowserConnection(ws, request) {
     customer = await getCustomerById(customerId);
 
     if (!customer) {
+      // FIX: Generate new customerId instead of reusing the provided one
+      // which would fail due to unique constraint on customerId field
       customer = await createCustomer({
-        customerId,
+        customerId: `CUS_${randomUUID()}`,
         source: "browser",
       });
 
@@ -122,7 +173,7 @@ async function handleBrowserConnection(ws, request) {
           try {
             console.log("Trying to extract customer name...");
 
-            const extractedName = await extractCustomerName(transcript.text);
+            const extractedName = extractCustomerName(transcript.text);
 
             if (!extractedName) {
               console.log("Customer name not detected yet.");
@@ -268,13 +319,20 @@ You are Prajwal, the Tejo EV sales assistant. Do not ask the customer's name aga
 
         let followUpAt = null;
 
+        // FIX: Use callbackDate and callbackTime from analysis instead of followUpDelayMinutes
         if (
           analysis.followUpRequired &&
-          typeof analysis.followUpDelayMinutes === "number"
+          analysis.callbackDate &&
+          analysis.callbackTime
         ) {
-          followUpAt = new Date(
-            Date.now() + analysis.followUpDelayMinutes * 60 * 1000,
-          );
+          const [hours, minutes] = analysis.callbackTime.split(':').map(Number);
+          const followUpDate = new Date(`${analysis.callbackDate}T${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:00+05:30`);
+          followUpAt = followUpDate;
+        } else if (
+          analysis.followUpRequired &&
+          analysis.callbackDate
+        ) {
+          followUpAt = new Date(`${analysis.callbackDate}T00:00:00+05:30`);
         }
 
         console.log("Call analysis completed:", analysis);
@@ -286,7 +344,7 @@ You are Prajwal, the Tejo EV sales assistant. Do not ask the customer's name aga
         const call = await createCall({
           callId,
 
-          customerId,
+          customerId: customer?.customerId || customerId,
 
           summary: analysis.summary,
 
@@ -309,12 +367,12 @@ You are Prajwal, the Tejo EV sales assistant. Do not ask the customer's name aga
         // UPDATE CUSTOMER SUMMARY
         // ------------------------------------------
 
-        await updateCustomerSummary(customerId, analysis.summary);
+        await updateCustomerSummary(customer?.customerId || customerId, analysis.summary);
 
-        console.log("Customer summary updated:", customerId);
+        console.log("Customer summary updated:", customer?.customerId || customerId);
 
         if (analysis.customerName) {
-          await updateCustomerName(customerId, analysis.customerName);
+          await updateCustomerName(customer?.customerId || customerId, analysis.customerName);
 
           console.log("Customer name updated:", analysis.customerName);
         }

@@ -18,7 +18,7 @@ const ai = new GoogleGenAI({
 });
 
 const MODEL =
-  "gemini-3.1-flash-live-preview";
+  "gemini-2.0-flash-live-001";
 
 const END_CALL_TOOL = {
   name: "endCall",

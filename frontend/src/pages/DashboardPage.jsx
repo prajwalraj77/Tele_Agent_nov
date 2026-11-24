@@ -172,7 +172,7 @@ export default function DashboardPage() {
                 <div className="w-8 h-8 rounded-xl bg-blue-500/20 backdrop-blur flex items-center justify-center text-blue-400 shadow-lg shadow-blue-500/30">
                   <Icon name="dashboard" size={18} />
                 </div>
-                <div className="text-xs font-bold text-blue-400 uppercase tracking-widest">Good morning, Prajwal</div>
+                <div className="text-xs font-bold text-blue-400 uppercase tracking-widest">Good morning</div>
               </div>
               <h1 className="text-4xl font-black text-white tracking-tight">AI Voice Dashboard</h1>
               <p className="text-white/60 mt-2">

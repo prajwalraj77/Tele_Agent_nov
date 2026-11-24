@@ -12,7 +12,7 @@ const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
 
-const MODEL = "gemini-3.5-flash-lite";
+const MODEL = "gemini-2.5-flash-preview-04-17";
 
 // Helper to extract JSON from markdown code fences
 function extractJsonFromResponse(text) {
