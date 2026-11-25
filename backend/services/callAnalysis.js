@@ -13,7 +13,7 @@ const ai = new GoogleGenAI({
 });
 const MODEL =
   process.env.GEMINI_ANALYSIS_MODEL ||
-  "gemini-2.5-flash";
+  "gemini-3.8-flash";
 
 
 // Timeout wrapper for API calls with retry logic
