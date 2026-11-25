@@ -20,8 +20,7 @@ const {
   updateCustomerAfterCall,
 } = require("../customerService");
 
-const Customer =
-  require("../../models/Customer");
+const Customer = require("../../models/Customer");
 
 const VALID_OUTCOMES = [
   "normal",
@@ -31,7 +30,7 @@ const VALID_OUTCOMES = [
   "no_response",
 ];
 
-// Prevents secondary AI processing from blocking Call persistence.
+// Prevent secondary AI processing from blocking Call persistence.
 async function withTimeout(
   promise,
   timeoutMs,
@@ -66,14 +65,11 @@ async function resolveCall({
   externalCallSid,
 }) {
   if (callId) {
-    return await getCallById(
-      callId,
-    );
+    return await getCallById(callId);
   }
 
   if (externalCallSid) {
-    const Call =
-      require("../../models/Call");
+    const Call = require("../../models/Call");
 
     return await Call.findOne({
       externalCallSid,
@@ -181,6 +177,10 @@ async function finalizeCall({
       "=================================",
     );
 
+    // ========================================================
+    // 1. FIND EXISTING CALL
+    // ========================================================
+
     const call =
       await resolveCall({
         callId,
@@ -224,27 +224,76 @@ async function finalizeCall({
         : null;
 
     // ========================================================
+    // 2. SAVE BASIC CALL COMPLETION DATA FIRST
     // ========================================================
-    // ATTEMPT AI ANALYSIS (non-blocking - call already saved)
+    // IMPORTANT:
+    // The Call must be persisted as completed BEFORE
+    // attempting Gemini analysis.
+    //
+    // Therefore, even if Gemini fails, we still have:
+    // - completed status
+    // - endedAt
+    // - durationSeconds
+    // - summaryStatus
+    // ========================================================
+
+    let updatedCall =
+      await updateExistingCall(
+        callId,
+        externalCallSid,
+        {
+          status: "completed",
+          endedAt,
+          durationSeconds,
+          summaryStatus:
+            Array.isArray(conversation) &&
+            conversation.length > 0
+              ? "pending"
+              : "completed",
+
+          ...(providedOutcome
+            ? {
+                callOutcome:
+                  providedOutcome,
+              }
+            : {}),
+        },
+      );
+
+    if (!updatedCall) {
+      console.error(
+        "Call finalization failed: Call could not be updated.",
+      );
+
+      return null;
+    }
+
+    console.log(
+      "CALL BASIC COMPLETION DATA SAVED:",
+      updatedCall.callId,
+    );
+
+    // ========================================================
+    // 3. NO TRANSCRIPT
     // ========================================================
 
     if (
       !Array.isArray(conversation) ||
       conversation.length === 0
     ) {
-      // No transcript - mark analysis as completed (nothing to analyze)
-      await updateExistingCall(
-        callId,
-        externalCallSid,
-        {
-          summaryStatus: "completed",
-        },
-      );
+      updatedCall =
+        await updateExistingCall(
+          callId,
+          externalCallSid,
+          {
+            summaryStatus: "completed",
+          },
+        );
+
       console.log(
         "Call saved without transcript - analysis marked completed.",
       );
 
-      // Still attempt customer update
       await updateCustomerAfterFinalization(
         call,
         resolvedPhoneNumber,
@@ -252,13 +301,19 @@ async function finalizeCall({
         endedAt,
         null,
         null,
+        false,
+        null,
+        "uncertain",
         null,
       );
 
       return updatedCall;
     }
 
-    // Attempt analysis with its own error boundary
+    // ========================================================
+    // 4. ATTEMPT AI ANALYSIS
+    // ========================================================
+
     let analysis = null;
     let analysisError = null;
 
@@ -313,15 +368,23 @@ async function finalizeCall({
           "normal",
       );
     } catch (analysisErr) {
-      analysisError = analysisErr;
+      analysisError =
+        analysisErr;
+
       console.error(
-        "Call analysis failed (call is already saved):",
+        "Call analysis failed:",
         analysisErr.message,
       );
     }
 
-    // Build analysis-derived updates only if analysis succeeded
-    if (analysis && !analysisError) {
+    // ========================================================
+    // 5. ANALYSIS SUCCESS
+    // ========================================================
+
+    if (
+      analysis &&
+      !analysisError
+    ) {
       let finalOutcome =
         providedOutcome ||
         (
@@ -332,54 +395,102 @@ async function finalizeCall({
             : "normal"
         );
 
-      if (reason === "customer_no_response") {
-        finalOutcome = "no_response";
+      if (
+        reason ===
+        "customer_no_response"
+      ) {
+        finalOutcome =
+          "no_response";
       }
 
-      // Normalize special closure outcomes.
-      if (finalOutcome === "not_interested") {
-        analysis.interestStatus = "not_interested";
-        analysis.followUpRequired = false;
-        analysis.callbackDate = null;
-        analysis.callbackTime = null;
-        analysis.callbackReason = null;
+      // Normalize not interested.
+      if (
+        finalOutcome ===
+        "not_interested"
+      ) {
+        analysis.interestStatus =
+          "not_interested";
+
+        analysis.followUpRequired =
+          false;
+
+        analysis.callbackDate =
+          null;
+
+        analysis.callbackTime =
+          null;
+
+        analysis.callbackReason =
+          null;
       }
 
-      // A confirmed demo is NOT a callback.
-      if (finalOutcome === "demo_visit_confirmed") {
-        analysis.followUpRequired = false;
-        analysis.callbackDate = null;
-        analysis.callbackTime = null;
-        analysis.callbackReason = null;
+      // Demo/showroom visit is not a callback.
+      if (
+        finalOutcome ===
+        "demo_visit_confirmed"
+      ) {
+        analysis.followUpRequired =
+          false;
+
+        analysis.callbackDate =
+          null;
+
+        analysis.callbackTime =
+          null;
+
+        analysis.callbackReason =
+          null;
       }
 
-      // A callback explicitly requested by the customer.
-      if (finalOutcome === "callback_requested") {
-        analysis.followUpRequired = true;
-        if (!analysis.callbackReason) {
+      // Explicit callback request.
+      if (
+        finalOutcome ===
+        "callback_requested"
+      ) {
+        analysis.followUpRequired =
+          true;
+
+        if (
+          !analysis.callbackReason
+        ) {
           analysis.callbackReason =
             "Customer requested a callback.";
         }
       }
 
-      // No-response never creates a follow-up.
-      if (finalOutcome === "no_response") {
-        analysis.followUpRequired = false;
-        analysis.callbackDate = null;
-        analysis.callbackTime = null;
-        analysis.callbackReason = null;
+      // No response never creates follow-up.
+      if (
+        finalOutcome ===
+        "no_response"
+      ) {
+        analysis.followUpRequired =
+          false;
+
+        analysis.callbackDate =
+          null;
+
+        analysis.callbackTime =
+          null;
+
+        analysis.callbackReason =
+          null;
       }
 
       const explicitlyNotInterested =
-        analysis.interestStatus === "not_interested" ||
-        finalOutcome === "not_interested";
+        analysis.interestStatus ===
+          "not_interested" ||
+        finalOutcome ===
+          "not_interested";
 
       const followUpRequired =
-        finalOutcome === "callback_requested"
+        finalOutcome ===
+        "callback_requested"
           ? true
           : !explicitlyNotInterested &&
-            finalOutcome !== "demo_visit_confirmed" &&
-            finalOutcome !== "no_response" &&
+            finalOutcome !==
+              "demo_visit_confirmed" &&
+            finalOutcome !==
+              "no_response" &&
             Boolean(
               analysis.followUpRequired,
             );
@@ -400,7 +511,8 @@ async function finalizeCall({
           : null;
 
       const callbackStatus =
-        finalOutcome === "callback_requested"
+        finalOutcome ===
+        "callback_requested"
           ? "pending"
           : followUpAt &&
             followUpRequired
@@ -408,7 +520,8 @@ async function finalizeCall({
             : null;
 
       const nextAction =
-        finalOutcome === "callback_requested"
+        finalOutcome ===
+        "callback_requested"
           ? "Callback requested"
           : finalOutcome ===
               "demo_visit_confirmed"
@@ -426,39 +539,64 @@ async function finalizeCall({
         summary:
           analysis.summary ||
           "No summary available.",
+
         language:
-          analysis.language || null,
+          analysis.language ||
+          null,
+
         interestStatus:
           explicitlyNotInterested
             ? "not_interested"
             : analysis.interestStatus ||
               "uncertain",
-        callOutcome: finalOutcome,
+
+        callOutcome:
+          finalOutcome,
+
         followUpRequired,
+
         followUpDate,
+
         followUpAt,
+
         callbackStatus,
+
         callbackReason:
           followUpRequired
             ? analysis.callbackReason ||
               null
             : null,
+
         nextAction,
-        summaryStatus: "completed",
+
+        summaryStatus:
+          "completed",
       };
 
-      await updateExistingCall(
-        callId,
-        externalCallSid,
-        analysisUpdates,
-      );
+      // IMPORTANT:
+      // Capture the returned updated document.
+      updatedCall =
+        await updateExistingCall(
+          callId,
+          externalCallSid,
+          analysisUpdates,
+        );
+
+      if (!updatedCall) {
+        throw new Error(
+          "Call analysis completed, but the Call record could not be updated.",
+        );
+      }
 
       console.log(
         "CALL RECORD UPDATED WITH ANALYSIS:",
         updatedCall.callId,
       );
 
-      // Update customer with analysis data
+      // ======================================================
+      // 6. UPDATE CUSTOMER
+      // ======================================================
+
       await updateCustomerAfterFinalization(
         call,
         resolvedPhoneNumber,
@@ -490,7 +628,9 @@ async function finalizeCall({
 
       console.log(
         "Customer ID:",
-        call.customerId || "None",
+        updatedCall.customerId ||
+          call.customerId ||
+          "None",
       );
 
       console.log(
@@ -522,24 +662,49 @@ async function finalizeCall({
       return updatedCall;
     }
 
-    // Analysis failed - call is already saved with basic data
-    await updateExistingCall(
-      callId,
-      externalCallSid,
-      {
-        summaryStatus: "failed",
-        summary:
-          "AI analysis unavailable: " +
-          (analysisError?.message || "Unknown error"),
-      },
-    );
+    // ========================================================
+    // 7. ANALYSIS FAILED
+    // ========================================================
+    // The Call is ALREADY saved as completed above.
+    // Only mark the analysis as failed here.
+    // ========================================================
+
+    updatedCall =
+      await updateExistingCall(
+        callId,
+        externalCallSid,
+        {
+          summaryStatus:
+            "failed",
+
+          summary:
+            "AI analysis unavailable: " +
+            (
+              analysisError?.message ||
+              "Unknown error"
+            ),
+
+          callOutcome:
+            providedOutcome ||
+            call.callOutcome ||
+            "normal",
+        },
+      );
+
+    if (!updatedCall) {
+      console.error(
+        "Call was completed, but final analysis-status update failed.",
+      );
+
+      return call;
+    }
 
     console.log(
       "CALL RECORD SAVED (analysis failed):",
       updatedCall.callId,
     );
 
-    // Still attempt customer update with minimal data
+    // Still attempt customer update with minimal data.
     await updateCustomerAfterFinalization(
       call,
       resolvedPhoneNumber,
@@ -571,12 +736,16 @@ async function finalizeCall({
 
     console.log(
       "Customer ID:",
-      call.customerId || "None",
+      updatedCall.customerId ||
+        call.customerId ||
+        "None",
     );
 
     console.log(
       "Call Outcome:",
-      finalCallOutcome,
+      providedOutcome ||
+        call.callOutcome ||
+        "normal",
     );
 
     console.log(
@@ -609,8 +778,9 @@ async function finalizeCall({
     throw error;
   }
 }
+
 // Updates customer after call finalization.
-// Called separately so customer update never blocks call persistence.
+// Called separately so customer update never blocks Call persistence.
 async function updateCustomerAfterFinalization(
   call,
   resolvedPhoneNumber,
@@ -625,6 +795,7 @@ async function updateCustomerAfterFinalization(
 ) {
   let customerId =
     call.customerId ||
+    updatedCall?.customerId ||
     null;
 
   let customer = null;
@@ -645,10 +816,13 @@ async function updateCustomerAfterFinalization(
         await findOrCreateCustomerByPhoneNumber({
           phoneNumber:
             resolvedPhoneNumber,
+
           name:
             customerName ||
             null,
-          source: "call",
+
+          source:
+            "call",
         });
 
       customer =
@@ -684,7 +858,10 @@ async function updateCustomerAfterFinalization(
     null;
 
   // Generate rolling profile without allowing it to block Call persistence.
-  if (analysis && analysis.summary) {
+  if (
+    analysis &&
+    analysis.summary
+  ) {
     try {
       const customerProfile =
         await withTimeout(
@@ -736,9 +913,12 @@ async function updateCustomerAfterFinalization(
   }
 
   const explicitlyNotInterested =
-    interestStatus === "not_interested";
+    interestStatus ===
+    "not_interested";
 
-  if (explicitlyNotInterested) {
+  if (
+    explicitlyNotInterested
+  ) {
     conversationRate = 0;
   }
 
@@ -750,12 +930,10 @@ async function updateCustomerAfterFinalization(
 
         {
           customerName:
-
             analysis?.customerName ||
-
             null,
 
-          ...analysis,
+          ...(analysis || {}),
 
           interestStatus:
             explicitlyNotInterested
@@ -776,7 +954,10 @@ async function updateCustomerAfterFinalization(
             call),
 
           callId:
+            updatedCall?.callId ||
             call.callId,
+
+          customerId,
 
           endedAt,
 
@@ -822,6 +1003,7 @@ async function updateCustomerAfterFinalization(
   return updatedCall;
 }
 
-module.exports = {  finalizeCall,
+module.exports = {
+  finalizeCall,
   updateCustomerAfterFinalization,
 };

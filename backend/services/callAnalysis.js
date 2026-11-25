@@ -11,8 +11,10 @@ const {
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
+const MODEL =
+  process.env.GEMINI_ANALYSIS_MODEL ||
+  "gemini-2.5-flash";
 
-const MODEL = "gemini-1.5-flash";
 
 // Timeout wrapper for API calls with retry logic
 async function withTimeoutAndRetry(promise, timeoutMs = 30000, maxRetries = 2) {
