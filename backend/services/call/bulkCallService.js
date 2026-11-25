@@ -8,7 +8,8 @@
 const { randomUUID } = require("crypto");
 const BulkCall = require("../../models/BulkCall");
 const Call = require("../../models/Call");
-const { normalizePhoneNumber } = require("../../transports/exotel/exotelCallService");
+const { normalizePhoneNumber } = require("../../services/phoneNormalizer");
+const { normalizePhoneNumberForExotel } = require("../../services/phoneNormalizer");
 const { initiateExotelFlowCall } = require("../../transports/exotel/exotelCallService");
 const { getCustomerContext } = require("../customer/customerContext");
 const { createCall, updateCall } = require("../callService");

@@ -1,5 +1,6 @@
 const Customer = require("../models/Customer");
 const { randomUUID } = require("crypto");
+const { normalizePhoneNumber } = require("./phoneNormalizer");
 
 const INVALID_NAMES = new Set([
   "unknown",
@@ -33,26 +34,7 @@ function getValidCustomerName(name) {
 }
 
 function normalizeCustomerPhoneNumber(phoneNumber) {
-  if (!phoneNumber) {
-    return null;
-  }
-
-  let normalized = String(phoneNumber).trim();
-  normalized = normalized.replace(/\D/g, "");
-
-  if (normalized.startsWith("91") && normalized.length === 12) {
-    normalized = normalized.slice(2);
-  }
-
-  if (normalized.startsWith("0") && normalized.length === 11) {
-    normalized = normalized.slice(1);
-  }
-
-  if (normalized.length !== 10) {
-    return null;
-  }
-
-  return normalized;
+  return normalizePhoneNumber(phoneNumber);
 }
 
 function generateCustomerId() {

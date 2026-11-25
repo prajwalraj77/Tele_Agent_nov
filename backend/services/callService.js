@@ -58,7 +58,7 @@ async function updateCall(
     { callId },
     { $set: updates },
     {
-      new: true,
+      returnDocument: 'after',
       runValidators: true,
     },
   );
@@ -93,7 +93,7 @@ async function updateCallByExternalSid(
     { externalCallSid },
     { $set: updates },
     {
-      new: true,
+      returnDocument: 'after',
       runValidators: true,
     },
   );

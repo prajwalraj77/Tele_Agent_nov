@@ -12,7 +12,29 @@ const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
 
-const MODEL = "gemini-2.5-flash-preview-04-17";
+const MODEL = "gemini-1.5-flash";
+
+// Timeout wrapper for API calls with retry logic
+async function withTimeoutAndRetry(promise, timeoutMs = 30000, maxRetries = 2) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await Promise.race([
+        promise,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("API call timed out after " + timeoutMs + "ms")), timeoutMs)
+        ),
+      ]);
+    } catch (error) {
+      const isLastAttempt = attempt === maxRetries;
+      const isTimeout = error.message.includes("timed out") || error.code === "UND_ERR_CONNECT_TIMEOUT";
+      if (isLastAttempt || !isTimeout) {
+        throw error;
+      }
+      console.warn("Call analysis API attempt " + attempt + " failed (timeout), retrying... (" + (maxRetries - attempt) + " retries left)");
+      await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
+    }
+  }
+}
 
 // Helper to extract JSON from markdown code fences
 function extractJsonFromResponse(text) {
@@ -245,10 +267,14 @@ Return JSON only.
 
   try {
     const response =
-      await ai.models.generateContent({
-        model: MODEL,
-        contents: prompt,
-      });
+      await withTimeoutAndRetry(
+        ai.models.generateContent({
+          model: MODEL,
+          contents: prompt,
+        }),
+        30000,
+        2,
+      );
 
     const text =
       response.text.trim();
@@ -492,10 +518,14 @@ IMPORTANT:
 
   try {
     const response =
-      await ai.models.generateContent({
-        model: MODEL,
-        contents: prompt,
-      });
+      await withTimeoutAndRetry(
+        ai.models.generateContent({
+          model: MODEL,
+          contents: prompt,
+        }),
+        30000,
+        2,
+      );
 
     const text =
       response.text.trim();

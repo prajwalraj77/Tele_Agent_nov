@@ -6,37 +6,7 @@
 // ============================================================
 
 const Customer = require("../../models/Customer");
-
-// Normalizes an Indian phone number.
-function normalizePhoneNumber(phone) {
-  if (!phone) {
-    return null;
-  }
-
-  let normalized = String(phone).trim();
-
-  normalized = normalized.replace(/\D/g, "");
-
-  if (
-    normalized.startsWith("91") &&
-    normalized.length === 12
-  ) {
-    normalized = normalized.slice(2);
-  }
-
-  if (
-    normalized.startsWith("0") &&
-    normalized.length === 11
-  ) {
-    normalized = normalized.slice(1);
-  }
-
-  if (normalized.length !== 10) {
-    return null;
-  }
-
-  return normalized;
-}
+const { normalizePhoneNumber } = require("../phoneNormalizer");
 
 // Finds a customer using multiple Indian phone formats.
 async function findCustomerByPhone(phone) {

@@ -6,6 +6,10 @@ const {
   removeCallContext,
 } = require("../../services/call/callContext");
 
+const {
+  normalizePhoneNumberForExotel,
+} = require("../../services/phoneNormalizer");
+
 // ============================================================
 // EXOTEL CONFIGURATION
 // ============================================================
@@ -113,37 +117,7 @@ function getPublicStreamUrl() {
 // ============================================================
 
 function normalizePhoneNumber(phoneNumber) {
-  if (!phoneNumber) {
-    throw new Error("Phone number is required");
-  }
-
-  let phone = String(phoneNumber).trim();
-
-  phone = phone.replace(/[\s\-()]/g, "");
-
-  // +91XXXXXXXXXX
-  if (/^\+91\d{10}$/.test(phone)) {
-    return `0${phone.slice(3)}`;
-  }
-
-  // 91XXXXXXXXXX
-  if (/^91\d{10}$/.test(phone)) {
-    return `0${phone.slice(2)}`;
-  }
-
-  // XXXXXXXXXX
-  if (/^\d{10}$/.test(phone)) {
-    return `0${phone}`;
-  }
-
-  // 0XXXXXXXXXX
-  if (/^0\d{10}$/.test(phone)) {
-    return phone;
-  }
-
-  throw new Error(
-    "Invalid phone number. Please enter a valid Indian mobile number.",
-  );
+  return normalizePhoneNumberForExotel(phoneNumber);
 }
 
 // ============================================================
