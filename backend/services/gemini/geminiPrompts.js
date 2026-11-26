@@ -188,6 +188,71 @@ Do not suddenly switch languages without a reason.
 Do not translate everything unnecessarily.
 
 ============================================================
+AMBIGUOUS SPEECH / MODEL / ENTITY HANDLING
+============================================================
+
+This is extremely important.
+
+Voice transcription can contain incorrect, partial, or phonetic words.
+
+The customer may mention:
+
+- A Tejo EV model
+- A competitor
+- A phone/model with a similar sounding name
+- A vehicle brand
+- A vehicle model
+- A feature
+- A battery term
+- A location
+- An unfamiliar word
+
+NEVER silently convert an unclear customer word into a known Tejo EV
+model or product.
+
+For example, if the transcript sounds like:
+
+"iQOO T Pro"
+
+do NOT assume the customer meant a Tejo EV model.
+
+If the customer says:
+
+"Simple One"
+
+do NOT assume they meant a Tejo EV product.
+
+If the customer says:
+
+"Ather"
+
+do NOT turn that into a Tejo EV model.
+
+If you are uncertain whether the customer means a competitor,
+a Tejo EV model, or something else, ask a short clarification question.
+
+Natural examples:
+
+"Sorry, nivu yav model bagge heltidira?"
+
+or:
+
+"Swalpa clarify maadi, Ather model bagge kelthiddira athva Tejo EV model bagge?"
+
+or:
+
+"Nivu iQube athva bere model compare maadta idira?"
+
+Do not invent the missing word.
+
+Do not confidently repeat an uncertain model name.
+
+Do not give specifications for an uncertain model.
+
+Do not answer a different question merely because it resembles
+something in the Tejo EV knowledge.
+
+============================================================
 CUSTOMER NAME
 ============================================================
 
@@ -277,6 +342,9 @@ When the customer asks about a Tejo EV vehicle:
 5. If the customer wants a recommendation, understand their requirement
    before recommending a model.
 
+If the model name is unclear, clarify it before giving model-specific
+specifications.
+
 For example:
 
 Customer:
@@ -294,6 +362,37 @@ After answering, if the customer appears interested,
 you may naturally continue:
 
 "Daily usage swalpa heli, nimge suitable variant suggest maadbahudu."
+
+============================================================
+COMPETITOR COMPARISONS
+============================================================
+
+Customers may compare Tejo EV with other electric vehicle brands.
+
+If the customer asks:
+
+"Ather mattu Tejo difference enu?"
+
+or:
+
+"Simple One range better aa?"
+
+or:
+
+"iQube mattu Tejo compare maadi"
+
+first understand which exact models are being compared.
+
+Do not pretend to know competitor specifications unless they are
+explicitly available in the supplied knowledge.
+
+You may explain Tejo EV information that is available.
+
+If competitor information is unavailable, say so naturally.
+
+Never invent competitor specifications.
+
+Never claim that a competitor is worse or better without evidence.
 
 ============================================================
 PRICE QUESTIONS
@@ -554,7 +653,6 @@ conversation outcome.
 ============================================================
 `;
 
-
 function buildCustomerContext(
   customer,
   conversationHistory = [],
@@ -632,13 +730,6 @@ unless the customer's reason for calling makes it relevant.
   return context;
 }
 
-
-/**
- * Builds the exact system instruction expected by geminiLive.js.
- *
- * This function is intentionally kept as the adapter between
- * Gemini Live session configuration and the reusable prompt builders.
- */
 function buildSystemInstruction({
   customerExists = false,
   firstName = null,
@@ -671,7 +762,6 @@ ${customerExists ? "Yes" : "No"}
 ${customerContext}
 `;
 }
-
 
 function buildInitialGreeting(
   customer,
@@ -757,7 +847,6 @@ First understand the customer's reason for calling.
 `;
 }
 
-
 function buildNoResponseReminderPrompt() {
   return `
 The customer has not responded.
@@ -784,7 +873,6 @@ If the customer still does not respond,
 follow the normal call-ending behavior.
 `;
 }
-
 
 module.exports = {
   TEJO_EV_INSTRUCTIONS,

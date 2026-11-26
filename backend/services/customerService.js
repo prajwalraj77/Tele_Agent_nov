@@ -174,7 +174,11 @@ async function getCustomerById(customerId) {
 // ============================================================
 // Creates a Customer document.
 // ============================================================
-async function createCustomer({ name = null, phoneNumber = null, source = "crm" }) {
+async function createCustomer({
+  name = null,
+  phoneNumber = null,
+  source = "crm",
+}) {
   const customerId = generateCustomerId();
 
   const customer = await Customer.create({
@@ -190,8 +194,13 @@ async function createCustomer({ name = null, phoneNumber = null, source = "crm" 
 // ============================================================
 // Finds or creates a Customer by phone number.
 // ============================================================
-async function findOrCreateCustomerByPhoneNumber({ phoneNumber, name = null, source = "call" }) {
-  const normalizedPhone = normalizeCustomerPhoneNumber(phoneNumber);
+async function findOrCreateCustomerByPhoneNumber({
+  phoneNumber,
+  name = null,
+  source = "call",
+}) {
+  const normalizedPhone =
+    normalizeCustomerPhoneNumber(phoneNumber);
 
   if (!normalizedPhone) {
     throw new Error("Invalid phone number");
@@ -209,7 +218,10 @@ async function findOrCreateCustomerByPhoneNumber({ phoneNumber, name = null, sou
   });
 
   if (customer) {
-    return { customer: customer.toObject(), created: false };
+    return {
+      customer: customer.toObject(),
+      created: false,
+    };
   }
 
   customer = await Customer.create({
@@ -219,40 +231,59 @@ async function findOrCreateCustomerByPhoneNumber({ phoneNumber, name = null, sou
     source,
   });
 
-  return { customer: customer.toObject(), created: true };
+  return {
+    customer: customer.toObject(),
+    created: true,
+  };
 }
 
 // ============================================================
 // Finds or creates a Customer by name.
 // ============================================================
-async function findOrCreateCustomerByName({ name, phoneNumber = null, source = "crm" }) {
-  const validName = getValidCustomerName(name);
+async function findOrCreateCustomerByName({
+  name,
+  phoneNumber = null,
+  source = "crm",
+}) {
+  const validName =
+    getValidCustomerName(name);
 
   if (!validName) {
     throw new Error("Invalid name");
   }
 
-  let customer = await Customer.findOne({ name: validName });
+  let customer =
+    await Customer.findOne({
+      name: validName,
+    });
 
   if (customer) {
-    return { customer: customer.toObject(), created: false };
+    return {
+      customer: customer.toObject(),
+      created: false,
+    };
   }
 
   customer = await Customer.create({
     customerId: generateCustomerId(),
     name: validName,
-    phoneNumber: normalizeCustomerPhoneNumber(phoneNumber),
+    phoneNumber:
+      normalizeCustomerPhoneNumber(phoneNumber),
     source,
   });
 
-  return { customer: customer.toObject(), created: true };
+  return {
+    customer: customer.toObject(),
+    created: true,
+  };
 }
 
 // ============================================================
 // Finds a Customer by normalized phone number.
 // ============================================================
 async function getCustomerByPhoneNumber(phoneNumber) {
-  const normalizedPhone = normalizeCustomerPhoneNumber(phoneNumber);
+  const normalizedPhone =
+    normalizeCustomerPhoneNumber(phoneNumber);
 
   if (!normalizedPhone) {
     return null;
@@ -273,7 +304,10 @@ async function getCustomerByPhoneNumber(phoneNumber) {
 // ============================================================
 // Updates Customer.conversationSummary.
 // ============================================================
-async function updateCustomerSummary(customerId, summary) {
+async function updateCustomerSummary(
+  customerId,
+  summary
+) {
   if (!customerId) {
     return null;
   }
@@ -281,19 +315,25 @@ async function updateCustomerSummary(customerId, summary) {
   return await Customer.findOneAndUpdate(
     { customerId },
     { conversationSummary: summary },
-    { new: true }
+    {
+      returnDocument: "after",
+    }
   ).lean();
 }
 
 // ============================================================
 // Updates the customer name after validation.
 // ============================================================
-async function updateCustomerName(customerId, name) {
+async function updateCustomerName(
+  customerId,
+  name
+) {
   if (!customerId) {
     return null;
   }
 
-  const validName = getValidCustomerName(name);
+  const validName =
+    getValidCustomerName(name);
 
   if (!validName) {
     return null;
@@ -302,7 +342,9 @@ async function updateCustomerName(customerId, name) {
   return await Customer.findOneAndUpdate(
     { customerId },
     { name: validName },
-    { new: true }
+    {
+      returnDocument: "after",
+    }
   ).lean();
 }
 
@@ -321,41 +363,91 @@ async function updateCustomerAfterCall(
   }
 
   const explicitlyNotInterested =
-    analysis?.interestStatus === "not_interested" ||
-    analysis?.callOutcome === "not_interested";
+    analysis?.interestStatus ===
+      "not_interested" ||
+    analysis?.callOutcome ===
+      "not_interested";
 
   const updates = {
-    latestCallId: callData?.callId || null,
-    latestCallAt: callData?.endedAt || new Date(),
+    latestCallId:
+      callData?.callId || null,
+
+    latestCallAt:
+      callData?.endedAt ||
+      new Date(),
+
     conversationSummary,
-    conversationRate: explicitlyNotInterested ? 0 : conversationRate,
-    interestStatus: explicitlyNotInterested ? "not_interested" : analysis?.interestStatus || "uncertain",
-    doNotCall: explicitlyNotInterested ? true : undefined,
-    followUpRequired: explicitlyNotInterested ? false : analysis?.followUpRequired || false,
-    followUpDate: explicitlyNotInterested ? null : callData?.followUpDate || null,
-    followUpAt: explicitlyNotInterested ? null : callData?.followUpAt || null,
-    callbackReason: explicitlyNotInterested ? null : analysis?.callbackReason || null,
+
+    conversationRate:
+      explicitlyNotInterested
+        ? 0
+        : conversationRate,
+
+    interestStatus:
+      explicitlyNotInterested
+        ? "not_interested"
+        : analysis?.interestStatus ||
+          "uncertain",
+
+    doNotCall:
+      explicitlyNotInterested
+        ? true
+        : undefined,
+
+    followUpRequired:
+      explicitlyNotInterested
+        ? false
+        : analysis?.followUpRequired ||
+          false,
+
+    followUpDate:
+      explicitlyNotInterested
+        ? null
+        : callData?.followUpDate ||
+          null,
+
+    followUpAt:
+      explicitlyNotInterested
+        ? null
+        : callData?.followUpAt ||
+          null,
+
+    callbackReason:
+      explicitlyNotInterested
+        ? null
+        : analysis?.callbackReason ||
+          null,
   };
 
-  // Only update name if provided and valid
+  // Only update name if provided and valid.
   if (analysis?.customerName) {
-    const validName = getValidCustomerName(analysis.customerName);
+    const validName =
+      getValidCustomerName(
+        analysis.customerName
+      );
+
     if (validName) {
       updates.name = validName;
     }
   }
 
-  // Remove undefined fields
-  Object.keys(updates).forEach((key) => {
-    if (updates[key] === undefined) {
-      delete updates[key];
+  // Remove undefined fields.
+  Object.keys(updates).forEach(
+    (key) => {
+      if (
+        updates[key] === undefined
+      ) {
+        delete updates[key];
+      }
     }
-  });
+  );
 
   return await Customer.findOneAndUpdate(
     { customerId },
     { $set: updates },
-    { new: true }
+    {
+      returnDocument: "after",
+    }
   ).lean();
 }
 

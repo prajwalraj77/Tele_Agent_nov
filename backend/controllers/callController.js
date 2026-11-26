@@ -24,7 +24,7 @@ const {
   listRecentCalls,
 } = require("../services/callService");
 
-// Bulk call service
+// Bulk call service (embedded phoneNumbers architecture)
 const {
   parseAndNormalizeNumbers,
   createBulkCall,
@@ -33,16 +33,17 @@ const {
   pauseBulkCall,
   resumeBulkCall,
   cancelBulkCall,
-} = require("../services/call/bulkCallService");
+  startBulkCallCampaign,
+} = require("../services/bulkCall/bulkCallService");
 
-// Bulk call processor (for active status)
+// Bulk call processor (sequential campaign engine)
 const {
   getActiveBulkStatus,
 } = require("../services/call/bulkCallProcessor");
 
 const {
   waitForCallCompletion,
-  startBulkCallInBackground,
+  processBulkCall,
 } = require("../services/call/bulkCallProcessor");
 
 const {
@@ -292,16 +293,14 @@ async function initiateBulkCall(req, res) {
       config,
     });
 
-    startBulkCallInBackground(bulkCall.bulkId);
-
     return res.json({
       success: true,
       bulkId: bulkCall.bulkId,
-      status: "started",
+      status: "created",
       totalNumbers: bulkCall.totalNumbers,
       validNumbers: numbers.length,
       errors: errors.length > 0 ? errors : undefined,
-      message: `Bulk dial campaign started with ${numbers.length} numbers`,
+      message: `Bulk campaign created with ${numbers.length} number(s). Call POST /api/call/bulk/${bulkCall.bulkId}/start to begin sequential calling.`,
     });
   } catch (error) {
     console.error("Bulk call initiation failed:", error);
@@ -441,6 +440,53 @@ async function cancelBulkCallHandler(req, res) {
   }
 }
 
+// Start bulk call campaign (explicit start after creation)
+async function startBulkCallHandler(req, res) {
+  try {
+    const { bulkId } = req.params;
+
+    // Atomically transition status from "created" to "running".
+    // MongoDB guarantees only one request can match { status: "created" },
+    // so duplicate concurrent start requests cannot both succeed.
+    const started = await startBulkCallCampaign(bulkId);
+
+    if (!started) {
+      const bulkCall = await getBulkCall(bulkId);
+      if (!bulkCall) {
+        return res.status(404).json({
+          success: false,
+          message: "Bulk campaign not found",
+        });
+      }
+
+      return res.status(409).json({
+        success: false,
+        message: `Campaign cannot be started. Current status: ${bulkCall.status}`,
+      });
+    }
+
+    // Start the sequential processor in the background.
+    // processBulkCall acquires an in-memory execution lock (activeBulkProcessors),
+    // so even if the atomic transition somehow passed twice, only one processor runs.
+    processBulkCall(bulkId).catch((error) => {
+      console.error(`Background bulk campaign ${bulkId} failed:`, error);
+    });
+
+    return res.json({
+      success: true,
+      bulkId,
+      status: "running",
+      message: "Bulk campaign started sequentially.",
+    });
+  } catch (error) {
+    console.error("Failed to start bulk call:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+}
+
 // Get calls for a bulk campaign
 async function getBulkCallCalls(req, res) {
   try {
@@ -520,6 +566,7 @@ async function getPendingFollowUps(
 module.exports = {
   initiateCall,
   initiateBulkCall,
+  startBulkCallHandler,
   getBulkCallStatus,
   listBulkCalls: listBulkCallsHandler,
   pauseBulkCall: pauseBulkCallHandler,

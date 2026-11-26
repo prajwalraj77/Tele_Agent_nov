@@ -1,135 +1,311 @@
 // ============================================================
 // BULK CALL SERVICE
 // ============================================================
-// Handles bulk dial campaigns - sequential outbound calls
-// with configurable retry, timeout, and gap between calls.
+// Handles creation and persistence of outbound bulk campaigns.
 // ============================================================
 
-const { randomUUID } = require("crypto");
-const BulkCall = require("../../models/BulkCall");
-const Call = require("../../models/Call");
-const { normalizePhoneNumber } = require("../../services/phoneNormalizer");
-const { normalizePhoneNumberForExotel } = require("../../services/phoneNormalizer");
-const { initiateExotelFlowCall } = require("../../transports/exotel/exotelCallService");
-const { getCustomerContext } = require("../customer/customerContext");
-const { createCall, updateCall } = require("../callService");
+const {
+  randomUUID,
+} = require("crypto");
 
-// In-memory store for active bulk call processors
-// In production, use Redis or a job queue (BullMQ, Agenda, etc.)
-const activeBulkProcessors = new Map();
+const BulkCall =
+  require("../../models/BulkCall");
 
-/**
- * Normalize and validate phone numbers from various formats:
- * +91XXXXXXXXXX, 91XXXXXXXXXX, XXXXXXXXXX, 0XXXXXXXXXX
- */
-function parseAndNormalizeNumbers(input) {
-  if (!input || typeof input !== "string") {
-    return { numbers: [], errors: ["Input is required"] };
+const {
+  normalizePhoneNumber,
+} = require("../../services/phoneNormalizer");
+
+// In-memory store for currently running campaign processors.
+//
+// This is acceptable for the current single-server MVP.
+// Later, move campaign locks/state to Redis or a queue such
+// as BullMQ when running multiple backend instances.
+const activeBulkProcessors =
+  new Map();
+
+// ============================================================
+// PARSE + NORMALIZE NUMBERS
+// ============================================================
+
+function parseAndNormalizeNumbers(
+  input,
+) {
+  if (
+    !input ||
+    typeof input !== "string"
+  ) {
+    return {
+      numbers: [],
+      errors: [
+        "Phone number input is required.",
+      ],
+    };
   }
 
-  // Split by common delimiters: newline, comma, semicolon, space
-  const rawNumbers = input
-    .split(/[\n,;]+/)
-    .map((n) => n.trim())
-    .filter((n) => n.length > 0);
+  const rawNumbers =
+    input
+      .split(
+        /[\n,;]+/,
+      )
+      .map(
+        (number) =>
+          number.trim(),
+      )
+      .filter(
+        (number) =>
+          number.length > 0,
+      );
 
-  const results = [];
+  const numbers = [];
   const errors = [];
 
-  for (const raw of rawNumbers) {
+  for (
+    const original of rawNumbers
+  ) {
     try {
-      const normalized = normalizePhoneNumber(raw);
-      results.push({
-        original: raw,
+      const normalized =
+        normalizePhoneNumber(
+          original,
+        );
+
+      numbers.push({
+        original,
         normalized,
       });
     } catch (error) {
-      errors.push(`${raw}: ${error.message}`);
+      errors.push(
+        `${original}: ${error.message}`,
+      );
     }
   }
 
-  return { numbers: results, errors };
+  return {
+    numbers,
+    errors,
+  };
 }
 
-/**
- * Create a new bulk call campaign
- */
-async function createBulkCall({ name, phoneNumbers, config = {} }) {
-  const bulkId = `BULK_${randomUUID()}`;
+// ============================================================
+// CREATE CAMPAIGN
+// ============================================================
 
-  const defaultConfig = {
+async function createBulkCall({
+  name,
+  phoneNumbers,
+  config = {},
+}) {
+  const bulkId =
+    `BULK_${randomUUID()}`;
+
+  const finalConfig = {
     maxRetries: 1,
-    retryDelayMs: 5000,
-    callTimeoutMs: 30000,
-    gapBetweenCallsMs: 5000,
+
+    retryDelayMs:
+      5000,
+
+    callTimeoutMs:
+      600000,
+
+    // REQUIRED:
+    // exactly 20 seconds between completed
+    // MongoDB persistence and the next call.
+    gapBetweenCallsMs:
+      20000,
+
     ...config,
   };
 
-  const bulkCall = await BulkCall.create({
-    bulkId,
-    name: name || "Bulk Dial Campaign",
-    phoneNumbers: phoneNumbers.map((n) => ({
-      original: n.original,
-      normalized: n.normalized,
-      status: "pending",
-    })),
-    totalNumbers: phoneNumbers.length,
-    config: defaultConfig,
-    status: "created",
-  });
+  // Do not allow a smaller gap than 20 seconds.
+  //
+  // This is intentional. The business requirement is
+  // "wait exactly 20 seconds".
+  if (
+    finalConfig.gapBetweenCallsMs <
+    20000
+  ) {
+    finalConfig.gapBetweenCallsMs =
+      20000;
+  }
+
+  const bulkCall =
+    await BulkCall.create({
+      bulkId,
+
+      name:
+        name ||
+        "Bulk Dial Campaign",
+
+      phoneNumbers:
+        phoneNumbers.map(
+          (number) => ({
+            original:
+              number.original,
+
+            normalized:
+              number.normalized,
+
+            status:
+              "pending",
+          }),
+        ),
+
+      totalNumbers:
+        phoneNumbers.length,
+
+      processedCount:
+        0,
+
+      answeredCount:
+        0,
+
+      failedCount:
+        0,
+
+      noAnswerCount:
+        0,
+
+      currentIndex:
+        -1,
+
+      currentCallId:
+        null,
+
+      currentExternalCallSid:
+        null,
+
+      lastPersistedCallId:
+        null,
+
+      failureReason:
+        null,
+
+      lastError:
+        null,
+
+      config:
+        finalConfig,
+
+      status:
+        "created",
+    });
 
   return bulkCall;
 }
 
-/**
- * Get bulk call by ID
- */
-async function getBulkCall(bulkId) {
-  return await BulkCall.findOne({ bulkId }).lean();
-}
+// ============================================================
+// GET CAMPAIGN
+// ============================================================
 
-/**
- * Get all bulk calls
- */
-async function listBulkCalls(limit = 50) {
-  return await BulkCall.find({})
-    .sort({ createdAt: -1 })
-    .limit(limit)
+async function getBulkCall(
+  bulkId,
+) {
+  return await BulkCall
+    .findOne({
+      bulkId,
+    })
     .lean();
 }
 
-/**
- * Update bulk call progress
- */
-async function updateBulkCallProgress(bulkId, updates) {
-  return await BulkCall.findOneAndUpdate(
-    { bulkId },
-    { $set: updates },
-    { new: true }
-  ).lean();
+// ============================================================
+// LIST CAMPAIGNS
+// ============================================================
+
+async function listBulkCalls(
+  limit = 50,
+) {
+  return await BulkCall
+    .find({})
+    .sort({
+      createdAt:
+        -1,
+    })
+    .limit(
+      limit,
+    )
+    .lean();
 }
 
-/**
- * Update a specific phone number's status in the bulk call
- */
-async function updateNumberStatus(bulkId, index, updates) {
+// ============================================================
+// UPDATE CAMPAIGN
+// ============================================================
+
+async function updateBulkCallProgress(
+  bulkId,
+  updates,
+) {
+  return await BulkCall
+    .findOneAndUpdate(
+      {
+        bulkId,
+      },
+      {
+        $set:
+          updates,
+      },
+      {
+        returnDocument:
+          "after",
+        runValidators:
+          true,
+      },
+    )
+    .lean();
+}
+
+// ============================================================
+// UPDATE ONE PHONE NUMBER
+// ============================================================
+
+async function updateNumberStatus(
+  bulkId,
+  index,
+  updates,
+) {
   const setUpdates = {};
-  for (const [key, value] of Object.entries(updates)) {
-    setUpdates[`phoneNumbers.${index}.${key}`] = value;
+
+  for (
+    const [
+      key,
+      value,
+    ] of Object.entries(
+      updates,
+    )
+  ) {
+    setUpdates[
+      `phoneNumbers.${index}.${key}`
+    ] = value;
   }
-  return await BulkCall.findOneAndUpdate(
-    { bulkId },
-    { $set: setUpdates },
-    { new: true }
-  ).lean();
+
+  return await BulkCall
+    .findOneAndUpdate(
+      {
+        bulkId,
+      },
+      {
+        $set:
+          setUpdates,
+      },
+      {
+        returnDocument:
+          "after",
+        runValidators:
+          true,
+      },
+    )
+    .lean();
 }
 
-module.exports = {
-  parseAndNormalizeNumbers,
-  createBulkCall,
-  getBulkCall,
-  listBulkCalls,
-  updateBulkCallProgress,
-  updateNumberStatus,
-  activeBulkProcessors,
-};
+// ============================================================
+// ACTIVE PROCESSOR
+// ============================================================
+
+module.exports =
+  {
+    parseAndNormalizeNumbers,
+    createBulkCall,
+    getBulkCall,
+    listBulkCalls,
+    updateBulkCallProgress,
+    updateNumberStatus,
+    activeBulkProcessors,
+  };

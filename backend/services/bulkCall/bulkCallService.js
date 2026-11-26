@@ -1,38 +1,93 @@
 // ============================================================
 // BULK CALL SERVICE
 // ============================================================
-// CRUD for BulkCall campaigns + recipient management.
-// Links recipients to existing Customer (no duplicate DB).
+// CRUD for BulkCall campaigns using the embedded
+// phoneNumbers[] architecture (no separate Recipient/Attempt models).
 // ============================================================
 
 const { randomUUID } = require("crypto");
 const BulkCall = require("../../models/BulkCall");
-const BulkCallRecipient = require("../../models/BulkCallRecipient");
 const { normalizeAndDedup } = require("./bulkCallNormalizer");
-const { findOrCreateCustomerByPhoneNumber } = require("../customerService");
 
 const DEFAULT_CONFIG = {
   maxRetries: 1,
   retryDelayMs: 5000,
-  callTimeoutMs: 30000,
-  gapBetweenCallsMs: 5000,
-  concurrency: 3,
+  callTimeoutMs: 600000,
+  // REQUIRED:
+  // minimum 20 seconds between completed
+  // MongoDB persistence and the next call.
+  gapBetweenCallsMs: 20000,
 };
 
-// Create a bulk call campaign + recipients.
+// Enforce the minimum gap between calls.
+// The production requirement is exactly 20 seconds minimum.
+function enforceMinGap(gapMs) {
+  return Math.max(gapMs, 20000);
+}
+
+// Parse and normalize a raw phone-number string into valid/invalid arrays.
+function parseAndNormalizeNumbers(input) {
+  if (!input || typeof input !== "string") {
+    return {
+      numbers: [],
+      errors: ["Phone number input is required."],
+    };
+  }
+
+  const rawNumbers = input
+    .split(/[\n,;]+/)
+    .map((number) => number.trim())
+    .filter((number) => number.length > 0);
+
+  const numbers = [];
+  const errors = [];
+
+  for (const original of rawNumbers) {
+    try {
+      const normalized = normalizeAndDedup([original]);
+
+      if (normalized.valid.length > 0) {
+        numbers.push({
+          original,
+          normalized: normalized.valid[0].normalized,
+        });
+      } else {
+        errors.push(
+          `${original}: ${normalized.invalid.map((i) => i.reason).join(", ")}`,
+        );
+      }
+    } catch (error) {
+      errors.push(`${original}: ${error.message}`);
+    }
+  }
+
+  return { numbers, errors };
+}
+
+// Create a bulk call campaign + recipients (embedded in BulkCall.phoneNumbers).
+// Does NOT start calling - caller must POST /start explicitly.
 async function createBulkCall({ name, phoneNumbers, config = {} }) {
   const bulkId = `BULK_${randomUUID()}`;
 
-  const mergedConfig = { ...DEFAULT_CONFIG, ...config };
+  const mergedConfig = {
+    ...DEFAULT_CONFIG,
+    ...config,
+    gapBetweenCallsMs: enforceMinGap(
+      config && config.gapBetweenCallsMs !== undefined
+        ? config.gapBetweenCallsMs
+        : DEFAULT_CONFIG.gapBetweenCallsMs
+    ),
+  };
 
-  // Normalize and deduplicate input numbers
-  const { valid, invalid } = normalizeAndDedup(phoneNumbers);
-
-  const recipients = valid.map((n) => ({
+  // phoneNumbers already arrive pre-normalized from parseAndNormalizeNumbers.
+  // Build recipients directly from the validated input.
+  const recipients = phoneNumbers.map((n) => ({
     original: n.original,
     normalized: n.normalized,
     status: "pending",
   }));
+
+  const invalid = []; // already filtered by parseAndNormalizeNumbers
 
   const bulkCall = await BulkCall.create({
     bulkId,
@@ -68,8 +123,8 @@ async function listBulkCalls(limit = 50) {
     .lean();
 }
 
-// Update bulk call status/progress.
-async function updateBulkCall(bulkId, updates) {
+// Update campaign statistics/progress.
+async function updateBulkCallProgress(bulkId, updates) {
   return await BulkCall.findOneAndUpdate(
     { bulkId },
     { $set: updates },
@@ -77,11 +132,17 @@ async function updateBulkCall(bulkId, updates) {
   ).lean();
 }
 
-// Update campaign statistics.
-async function updateBulkCallStats(bulkId, updates) {
+// Update one phone-number entry within the campaign.
+async function updateNumberStatus(bulkId, index, updates) {
+  const setUpdates = {};
+
+  for (const [key, value] of Object.entries(updates)) {
+    setUpdates[`phoneNumbers.${index}.${key}`] = value;
+  }
+
   return await BulkCall.findOneAndUpdate(
     { bulkId },
-    { $set: updates },
+    { $set: setUpdates },
     { new: true, runValidators: true },
   ).lean();
 }
@@ -95,59 +156,34 @@ async function setCampaignStatus(bulkId, status) {
   if (status === "completed" || status === "cancelled" || status === "failed") {
     update.completedAt = new Date();
   }
-  return await updateBulkCall(bulkId, update);
+  return await updateBulkCallProgress(bulkId, update);
 }
 
-// Get recipients for a campaign.
-async function getRecipients(bulkId) {
-  return await BulkCallRecipient.find({ bulkCallId: bulkId })
-    .sort({ createdAt: 1 })
-    .lean();
-}
-
-// Get attempts for a campaign.
-async function getAttempts(bulkId) {
-  const recipients = await BulkCallRecipient.find({ bulkCallId: bulkId })
-    .lean();
-  const recipientIds = recipients.map((r) => r._id);
-
-  return await BulkCallAttempt.find({ bulkRecipientId: { $in: recipientIds } })
-    .sort({ attemptNumber: -1, createdAt: -1 })
-    .lean();
-}
-
-// Link recipients to customers (called after bulk call creation).
-async function linkRecipientsToCustomers(bulkId) {
-  const recipients = await BulkCallRecipient.find({ bulkCallId: bulkId }).lean();
-
-  for (const recipient of recipients) {
-    try {
-      const result = await findOrCreateCustomerByPhoneNumber({
-        phoneNumber: recipient.normalizedPhoneNumber,
-        name: recipient.name || null,
-        source: "bulk",
-      });
-
-      await BulkCallRecipient.findOneAndUpdate(
-        { _id: recipient._id },
-        { $set: { customerId: result.customer.customerId } },
-        { new: true },
-      );
-    } catch (error) {
-      console.error(`Failed to link customer for recipient ${recipient.normalizedPhoneNumber}:`, error.message);
-    }
-  }
+// Atomically transition campaign from "created" to "running".
+// Returns the updated document if the transition succeeded,
+// or null if the campaign was not in "created" state (already started,
+// completed, failed, cancelled, etc.).
+async function startBulkCallCampaign(bulkId) {
+  return await BulkCall.findOneAndUpdate(
+    { bulkId, status: "created" },
+    {
+      $set: {
+        status: "running",
+        startedAt: new Date(),
+      },
+    },
+    { new: true, runValidators: true },
+  ).lean();
 }
 
 module.exports = {
+  parseAndNormalizeNumbers,
   createBulkCall,
   getBulkCall,
   listBulkCalls,
-  updateBulkCall,
-  updateBulkCallStats,
+  updateBulkCallProgress,
+  updateNumberStatus,
   setCampaignStatus,
-  getRecipients,
-  getAttempts,
-  linkRecipientsToCustomers,
+  startBulkCallCampaign,
   DEFAULT_CONFIG,
 };

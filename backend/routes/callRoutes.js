@@ -8,6 +8,7 @@ const {
   getPendingFollowUps,
   initiateCall,
   initiateBulkCall,
+  startBulkCallHandler,
   getBulkCallStatus,
   listBulkCalls,
   pauseBulkCall,
@@ -30,6 +31,7 @@ router.post("/", initiateCall);
 // Bulk call routes
 router.post("/bulk", initiateBulkCall);
 router.get("/bulk", listBulkCalls);
+router.post("/bulk/:bulkId/start", startBulkCallHandler);
 router.get("/bulk/:bulkId", getBulkCallStatus);
 router.get("/bulk/:bulkId/calls", getBulkCallCalls);
 router.post("/bulk/:bulkId/pause", pauseBulkCall);

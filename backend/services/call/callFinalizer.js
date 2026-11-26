@@ -20,7 +20,8 @@ const {
   updateCustomerAfterCall,
 } = require("../customerService");
 
-const Customer = require("../../models/Customer");
+const Customer =
+  require("../../models/Customer");
 
 const VALID_OUTCOMES = [
   "normal",
@@ -43,13 +44,14 @@ async function withTimeout(
       promise,
 
       new Promise((resolve) => {
-        timer = setTimeout(() => {
-          console.warn(
-            `Operation timed out after ${timeoutMs}ms.`,
-          );
+        timer =
+          setTimeout(() => {
+            console.warn(
+              `Operation timed out after ${timeoutMs}ms.`,
+            );
 
-          resolve(fallback);
-        }, timeoutMs);
+            resolve(fallback);
+          }, timeoutMs);
       }),
     ]);
   } finally {
@@ -65,11 +67,14 @@ async function resolveCall({
   externalCallSid,
 }) {
   if (callId) {
-    return await getCallById(callId);
+    return await getCallById(
+      callId,
+    );
   }
 
   if (externalCallSid) {
-    const Call = require("../../models/Call");
+    const Call =
+      require("../../models/Call");
 
     return await Call.findOne({
       externalCallSid,
@@ -154,7 +159,10 @@ function buildFollowUpAt(
   return followUpAt;
 }
 
-// Finalizes and persists the call.
+// ============================================================
+// FINALIZE CALL
+// ============================================================
+
 async function finalizeCall({
   callId = null,
   externalCallSid = null,
@@ -163,7 +171,8 @@ async function finalizeCall({
   reason = "stop",
   callOutcome = null,
 }) {
-  const endedAt = new Date();
+  const endedAt =
+    new Date();
 
   try {
     console.log("");
@@ -202,7 +211,9 @@ async function finalizeCall({
 
     const startedAt =
       call.startedAt
-        ? new Date(call.startedAt)
+        ? new Date(
+            call.startedAt,
+          )
         : endedAt;
 
     const durationSeconds =
@@ -212,29 +223,37 @@ async function finalizeCall({
           (
             endedAt.getTime() -
             startedAt.getTime()
-          ) / 1000,
+          ) /
+            1000,
         ),
       );
 
-    const providedOutcome =
+    // ========================================================
+    // IMPORTANT
+    // ========================================================
+    // "normal" is a valid outcome, but it is NOT a meaningful
+    // explicit customer instruction.
+    //
+    // Therefore, only non-normal voice outcomes are allowed
+    // to override Gemini's analysis.
+    // ========================================================
+
+    const rawProvidedOutcome =
       VALID_OUTCOMES.includes(
         callOutcome,
       )
         ? callOutcome
         : null;
 
+    const meaningfulProvidedOutcome =
+      rawProvidedOutcome &&
+      rawProvidedOutcome !==
+        "normal"
+        ? rawProvidedOutcome
+        : null;
+
     // ========================================================
-    // 2. SAVE BASIC CALL COMPLETION DATA FIRST
-    // ========================================================
-    // IMPORTANT:
-    // The Call must be persisted as completed BEFORE
-    // attempting Gemini analysis.
-    //
-    // Therefore, even if Gemini fails, we still have:
-    // - completed status
-    // - endedAt
-    // - durationSeconds
-    // - summaryStatus
+    // 2. SAVE BASIC COMPLETION DATA FIRST
     // ========================================================
 
     let updatedCall =
@@ -242,19 +261,29 @@ async function finalizeCall({
         callId,
         externalCallSid,
         {
-          status: "completed",
+          status:
+            meaningfulProvidedOutcome ===
+            "no_response"
+              ? "no_answer"
+              : "completed",
+
           endedAt,
+
           durationSeconds,
+
           summaryStatus:
-            Array.isArray(conversation) &&
-            conversation.length > 0
+            Array.isArray(
+              conversation,
+            ) &&
+            conversation.length >
+              0
               ? "pending"
               : "completed",
 
-          ...(providedOutcome
+          ...(meaningfulProvidedOutcome
             ? {
                 callOutcome:
-                  providedOutcome,
+                  meaningfulProvidedOutcome,
               }
             : {}),
         },
@@ -278,15 +307,19 @@ async function finalizeCall({
     // ========================================================
 
     if (
-      !Array.isArray(conversation) ||
-      conversation.length === 0
+      !Array.isArray(
+        conversation,
+      ) ||
+      conversation.length ===
+        0
     ) {
       updatedCall =
         await updateExistingCall(
           callId,
           externalCallSid,
           {
-            summaryStatus: "completed",
+            summaryStatus:
+              "completed",
           },
         );
 
@@ -311,11 +344,14 @@ async function finalizeCall({
     }
 
     // ========================================================
-    // 4. ATTEMPT AI ANALYSIS
+    // 4. AI ANALYSIS
     // ========================================================
 
-    let analysis = null;
-    let analysisError = null;
+    let analysis =
+      null;
+
+    let analysisError =
+      null;
 
     try {
       console.log(
@@ -367,7 +403,9 @@ async function finalizeCall({
         analysis.callOutcome ||
           "normal",
       );
-    } catch (analysisErr) {
+    } catch (
+      analysisErr
+    ) {
       analysisError =
         analysisErr;
 
@@ -386,7 +424,7 @@ async function finalizeCall({
       !analysisError
     ) {
       let finalOutcome =
-        providedOutcome ||
+        meaningfulProvidedOutcome ||
         (
           VALID_OUTCOMES.includes(
             analysis.callOutcome,
@@ -395,6 +433,8 @@ async function finalizeCall({
             : "normal"
         );
 
+      // Explicit no-response reason
+      // from the voice layer remains authoritative.
       if (
         reason ===
         "customer_no_response"
@@ -403,7 +443,10 @@ async function finalizeCall({
           "no_response";
       }
 
-      // Normalize not interested.
+      // ======================================================
+      // NOT INTERESTED
+      // ======================================================
+
       if (
         finalOutcome ===
         "not_interested"
@@ -424,7 +467,10 @@ async function finalizeCall({
           null;
       }
 
-      // Demo/showroom visit is not a callback.
+      // ======================================================
+      // DEMO / VISIT
+      // ======================================================
+
       if (
         finalOutcome ===
         "demo_visit_confirmed"
@@ -442,7 +488,10 @@ async function finalizeCall({
           null;
       }
 
-      // Explicit callback request.
+      // ======================================================
+      // CALLBACK
+      // ======================================================
+
       if (
         finalOutcome ===
         "callback_requested"
@@ -458,7 +507,10 @@ async function finalizeCall({
         }
       }
 
-      // No response never creates follow-up.
+      // ======================================================
+      // NO RESPONSE
+      // ======================================================
+
       if (
         finalOutcome ===
         "no_response"
@@ -535,46 +587,54 @@ async function finalizeCall({
                 : analysis.nextAction ||
                   null;
 
-      const analysisUpdates = {
-        summary:
-          analysis.summary ||
-          "No summary available.",
+      const analysisUpdates =
+        {
+          summary:
+            analysis.summary ||
+            "No summary available.",
 
-        language:
-          analysis.language ||
-          null,
+          language:
+            analysis.language ||
+            null,
 
-        interestStatus:
-          explicitlyNotInterested
-            ? "not_interested"
-            : analysis.interestStatus ||
-              "uncertain",
+          interestStatus:
+            explicitlyNotInterested
+              ? "not_interested"
+              : analysis.interestStatus ||
+                "uncertain",
 
-        callOutcome:
-          finalOutcome,
+          callOutcome:
+            finalOutcome,
 
-        followUpRequired,
+          followUpRequired,
 
-        followUpDate,
+          followUpDate,
 
-        followUpAt,
+          followUpAt,
 
-        callbackStatus,
+          callbackStatus,
 
-        callbackReason:
-          followUpRequired
-            ? analysis.callbackReason ||
-              null
-            : null,
+          callbackReason:
+            followUpRequired
+              ? analysis.callbackReason ||
+                null
+              : null,
 
-        nextAction,
+          nextAction,
 
-        summaryStatus:
-          "completed",
-      };
+          status:
+            finalOutcome === "no_response"
+              ? "no_answer"
+              : "completed",
 
-      // IMPORTANT:
-      // Capture the returned updated document.
+          summaryStatus:
+            "completed",
+        };
+
+      // ======================================================
+      // SAVE ANALYSIS
+      // ======================================================
+
       updatedCall =
         await updateExistingCall(
           callId,
@@ -594,7 +654,7 @@ async function finalizeCall({
       );
 
       // ======================================================
-      // 6. UPDATE CUSTOMER
+      // UPDATE CUSTOMER
       // ======================================================
 
       await updateCustomerAfterFinalization(
@@ -663,10 +723,7 @@ async function finalizeCall({
     }
 
     // ========================================================
-    // 7. ANALYSIS FAILED
-    // ========================================================
-    // The Call is ALREADY saved as completed above.
-    // Only mark the analysis as failed here.
+    // 6. ANALYSIS FAILED
     // ========================================================
 
     updatedCall =
@@ -677,6 +734,12 @@ async function finalizeCall({
           summaryStatus:
             "failed",
 
+          status:
+            meaningfulProvidedOutcome ===
+            "no_response"
+              ? "no_answer"
+              : "completed",
+
           summary:
             "AI analysis unavailable: " +
             (
@@ -685,7 +748,7 @@ async function finalizeCall({
             ),
 
           callOutcome:
-            providedOutcome ||
+            meaningfulProvidedOutcome ||
             call.callOutcome ||
             "normal",
         },
@@ -704,7 +767,6 @@ async function finalizeCall({
       updatedCall.callId,
     );
 
-    // Still attempt customer update with minimal data.
     await updateCustomerAfterFinalization(
       call,
       resolvedPhoneNumber,
@@ -743,7 +805,7 @@ async function finalizeCall({
 
     console.log(
       "Call Outcome:",
-      providedOutcome ||
+      meaningfulProvidedOutcome ||
         call.callOutcome ||
         "normal",
     );
@@ -769,7 +831,9 @@ async function finalizeCall({
     console.log("");
 
     return updatedCall;
-  } catch (error) {
+  } catch (
+    error
+  ) {
     console.error(
       "CALL FINALIZATION FAILED:",
       error,
@@ -779,8 +843,10 @@ async function finalizeCall({
   }
 }
 
-// Updates customer after call finalization.
-// Called separately so customer update never blocks Call persistence.
+// ============================================================
+// CUSTOMER UPDATE
+// ============================================================
+
 async function updateCustomerAfterFinalization(
   call,
   resolvedPhoneNumber,
@@ -798,14 +864,19 @@ async function updateCustomerAfterFinalization(
     updatedCall?.customerId ||
     null;
 
-  let customer = null;
+  let customer =
+    null;
 
   try {
-    if (customerId) {
+    if (
+      customerId
+    ) {
       customer =
-        await Customer.findOne({
-          customerId,
-        });
+        await Customer.findOne(
+          {
+            customerId,
+          },
+        );
     }
 
     if (
@@ -830,8 +901,23 @@ async function updateCustomerAfterFinalization(
 
       customerId =
         customer.customerId;
+
+      // Update the Call document with the customerId so future queries can find it
+      if (customerId) {
+        await updateExistingCall(
+          call.callId,
+          call.externalCallSid,
+          { customerId },
+        );
+        // Also update the local object that will be returned
+        if (updatedCall) {
+          updatedCall.customerId = customerId;
+        }
+      }
     }
-  } catch (error) {
+  } catch (
+    error
+  ) {
     console.error(
       "Customer lookup failed after Call was saved:",
       error,
@@ -840,7 +926,9 @@ async function updateCustomerAfterFinalization(
     return updatedCall;
   }
 
-  if (!customerId) {
+  if (
+    !customerId
+  ) {
     console.log(
       "No customer ID available. Call already saved.",
     );
@@ -857,7 +945,10 @@ async function updateCustomerAfterFinalization(
     customer?.conversationRate ??
     null;
 
-  // Generate rolling profile without allowing it to block Call persistence.
+  // ========================================================
+  // CUSTOMER PROFILE
+  // ========================================================
+
   if (
     analysis &&
     analysis.summary
@@ -879,7 +970,7 @@ async function updateCustomerAfterFinalization(
               analysis.interestStatus,
           }),
 
-          12000,
+          30000,
 
           {
             summary:
@@ -896,7 +987,9 @@ async function updateCustomerAfterFinalization(
 
       conversationRate =
         customerProfile.conversationRate;
-    } catch (error) {
+    } catch (
+      error
+    ) {
       console.error(
         "Customer profile generation failed. Using fallback:",
         error,
@@ -919,10 +1012,14 @@ async function updateCustomerAfterFinalization(
   if (
     explicitlyNotInterested
   ) {
-    conversationRate = 0;
+    conversationRate =
+      0;
   }
 
-  // Save customer state separately.
+  // ========================================================
+  // SAVE CUSTOMER
+  // ========================================================
+
   try {
     await withTimeout(
       updateCustomerAfterCall(
@@ -933,7 +1030,8 @@ async function updateCustomerAfterFinalization(
             analysis?.customerName ||
             null,
 
-          ...(analysis || {}),
+          ...(analysis ||
+            {}),
 
           interestStatus:
             explicitlyNotInterested
@@ -993,7 +1091,9 @@ async function updateCustomerAfterFinalization(
     console.log(
       "CUSTOMER RECORD SAVED.",
     );
-  } catch (error) {
+  } catch (
+    error
+  ) {
     console.error(
       "Customer update failed, but Call is already saved:",
       error,

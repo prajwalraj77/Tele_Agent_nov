@@ -11,50 +11,33 @@ const {
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
-const MODEL =
+
+const PRIMARY_ANALYSIS_MODEL =
   process.env.GEMINI_ANALYSIS_MODEL ||
   "gemini-3.8-flash";
 
+const PROFILE_MODEL =
+  process.env.GEMINI_PROFILE_MODEL ||
+  "gemini-3.6-flash";
 
-// Timeout wrapper for API calls with retry logic
-async function withTimeoutAndRetry(promise, timeoutMs = 30000, maxRetries = 2) {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      return await Promise.race([
-        promise,
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("API call timed out after " + timeoutMs + "ms")), timeoutMs)
-        ),
-      ]);
-    } catch (error) {
-      const isLastAttempt = attempt === maxRetries;
-      const isTimeout = error.message.includes("timed out") || error.code === "UND_ERR_CONNECT_TIMEOUT";
-      if (isLastAttempt || !isTimeout) {
-        throw error;
-      }
-      console.warn("Call analysis API attempt " + attempt + " failed (timeout), retrying... (" + (maxRetries - attempt) + " retries left)");
-      await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
-    }
-  }
-}
+const FALLBACK_MODELS = (
+  process.env.GEMINI_ANALYSIS_FALLBACK_MODELS ||
+  "gemini-3.6-flash,gemini-3.5-flash-lite"
+)
+  .split(",")
+  .map((model) => model.trim())
+  .filter(Boolean);
 
-// Helper to extract JSON from markdown code fences
-function extractJsonFromResponse(text) {
-  if (!text || typeof text !== "string") {
-    throw new Error("Empty or invalid response from AI");
-  }
+const ANALYSIS_MODELS = [
+  PRIMARY_ANALYSIS_MODEL,
+  ...FALLBACK_MODELS,
+].filter(
+  (model, index, array) =>
+    model && array.indexOf(model) === index,
+);
 
-  const trimmed = text.trim();
-
-  // Check for markdown code fences
-  const jsonMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  if (jsonMatch) {
-    return jsonMatch[1].trim();
-  }
-
-  // If no code fences, assume it's already JSON
-  return trimmed;
-}
+const ANALYSIS_TIMEOUT_MS = 30000;
+const PROFILE_TIMEOUT_MS = 30000;
 
 const VALID_OUTCOMES = [
   "normal",
@@ -64,51 +47,316 @@ const VALID_OUTCOMES = [
   "no_response",
 ];
 
-// Gets current India time.
+const VALID_INTEREST_STATUSES = [
+  "interested",
+  "not_interested",
+  "uncertain",
+];
+
+const VALID_LANGUAGES = [
+  "Kannada",
+  "English",
+  "Hindi",
+  "Tamil",
+  "Telugu",
+  "Malayalam",
+  "Marathi",
+  "Bengali",
+  "Gujarati",
+  "Punjabi",
+  "Odia",
+  "Assamese",
+  "Konkani",
+  "Urdu",
+  "Kannada-English",
+  "Hindi-English",
+  "Tamil-English",
+  "Telugu-English",
+  "Malayalam-English",
+  "Marathi-English",
+  "Bengali-English",
+  "Kannada-Hindi-English",
+  "Other",
+];
+
+// ============================================================
+// GENERIC GEMINI REQUEST
+// ============================================================
+
+async function generateGeminiContent({
+  model,
+  contents,
+  operationName,
+  timeoutMs = 30000,
+  maxRetries = 2,
+}) {
+  for (
+    let attempt = 1;
+    attempt <= maxRetries;
+    attempt++
+  ) {
+    try {
+      console.log(
+        `Gemini ${operationName} request: model=${model}, attempt=${attempt}`,
+      );
+
+      const response =
+        await Promise.race([
+          ai.models.generateContent({
+            model,
+            contents,
+          }),
+
+          new Promise((_, reject) => {
+            setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    `Gemini ${operationName} API call timed out after ${timeoutMs}ms`,
+                  ),
+                ),
+              timeoutMs,
+            );
+          }),
+        ]);
+
+      return response;
+    } catch (error) {
+      const message =
+        error?.message || "";
+
+      const code =
+        error?.code ||
+        error?.status ||
+        error?.response?.status;
+
+      const retryable =
+        code === 429 ||
+        code === 500 ||
+        code === 502 ||
+        code === 503 ||
+        code === 504 ||
+        message
+          .toLowerCase()
+          .includes("timed out") ||
+        message
+          .toLowerCase()
+          .includes("high demand") ||
+        message
+          .toLowerCase()
+          .includes("temporarily unavailable") ||
+        message
+          .toLowerCase()
+          .includes("unavailable");
+
+      console.error(
+        `Gemini ${operationName} failed: model=${model}, attempt=${attempt}, retryable=${retryable}`,
+      );
+
+      if (error?.response?.data) {
+        console.error(
+          JSON.stringify(
+            error.response.data,
+          ),
+        );
+      } else {
+        console.error(
+          message,
+        );
+      }
+
+      if (
+        !retryable ||
+        attempt >= maxRetries
+      ) {
+        throw error;
+      }
+
+      const delay =
+        2000 * attempt;
+
+      console.warn(
+        `Retrying Gemini ${operationName} in ${delay}ms...`,
+      );
+
+      await new Promise(
+        (resolve) =>
+          setTimeout(
+            resolve,
+            delay,
+          ),
+      );
+    }
+  }
+
+  throw new Error(
+    `Gemini ${operationName} failed.`,
+  );
+}
+
+// ============================================================
+// ANALYSIS MODEL FALLBACK
+// ============================================================
+
+async function generateAnalysisContent(
+  contents,
+) {
+  let lastError = null;
+
+  for (
+    let index = 0;
+    index < ANALYSIS_MODELS.length;
+    index++
+  ) {
+    const model =
+      ANALYSIS_MODELS[index];
+
+    try {
+      return await generateGeminiContent({
+        model,
+        contents,
+        operationName:
+          "analysis",
+        timeoutMs:
+          ANALYSIS_TIMEOUT_MS,
+        maxRetries: 2,
+      });
+    } catch (error) {
+      lastError = error;
+
+      if (
+        index <
+        ANALYSIS_MODELS.length - 1
+      ) {
+        console.warn(
+          `Gemini analysis model ${model} unavailable. Trying fallback model ${ANALYSIS_MODELS[index + 1]}.`,
+        );
+      }
+    }
+  }
+
+  throw lastError ||
+    new Error(
+      "All Gemini analysis models failed.",
+    );
+}
+
+// ============================================================
+// PROFILE MODEL
+// ============================================================
+
+async function generateProfileContent(
+  contents,
+) {
+  return await generateGeminiContent({
+    model:
+      PROFILE_MODEL,
+    contents,
+    operationName:
+      "customer profile",
+    timeoutMs:
+      PROFILE_TIMEOUT_MS,
+    maxRetries: 2,
+  });
+}
+
+// ============================================================
+// JSON EXTRACTION
+// ============================================================
+
+function extractJsonFromResponse(
+  text,
+) {
+  if (
+    !text ||
+    typeof text !==
+      "string"
+  ) {
+    throw new Error(
+      "Empty or invalid response from AI",
+    );
+  }
+
+  const trimmed =
+    text.trim();
+
+  const jsonMatch =
+    trimmed.match(
+      /```(?:json)?\s*([\s\S]*?)\s*```/,
+    );
+
+  if (jsonMatch) {
+    return jsonMatch[1].trim();
+  }
+
+  return trimmed;
+}
+
+// ============================================================
+// CURRENT INDIA TIME
+// ============================================================
+
 function getCurrentIndiaTime() {
-  const now = new Date();
+  const now =
+    new Date();
 
   return new Intl.DateTimeFormat(
     "en-CA",
     {
-      timeZone: "Asia/Kolkata",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: false,
+      timeZone:
+        "Asia/Kolkata",
+      year:
+        "numeric",
+      month:
+        "2-digit",
+      day:
+        "2-digit",
+      hour:
+        "2-digit",
+      minute:
+        "2-digit",
+      second:
+        "2-digit",
+      hour12:
+        false,
     },
   ).format(now);
 }
 
-// Removes invalid customer names.
+// ============================================================
+// CUSTOMER NAME CLEANUP
+// ============================================================
+
 function cleanAnalysisCustomerName(
   name,
 ) {
-  if (typeof name !== "string") {
+  if (
+    typeof name !==
+    "string"
+  ) {
     return null;
   }
 
-  const cleanName = name.trim();
+  const cleanName =
+    name.trim();
 
   if (!cleanName) {
     return null;
   }
 
-  const invalidNames = new Set([
-    "unknown",
-    "unknown customer",
-    "customer",
-    "none",
-    "null",
-    "not sure",
-    "not known",
-    "don't know",
-    "dont know",
-    "no name",
-  ]);
+  const invalidNames =
+    new Set([
+      "unknown",
+      "unknown customer",
+      "customer",
+      "none",
+      "null",
+      "not sure",
+      "not known",
+      "don't know",
+      "dont know",
+      "no name",
+    ]);
 
   if (
     invalidNames.has(
@@ -121,7 +369,10 @@ function cleanAnalysisCustomerName(
   return cleanName;
 }
 
-// Analyzes the current call.
+// ============================================================
+// ANALYZE CALL
+// ============================================================
+
 async function analyzeCall(
   conversation,
 ) {
@@ -130,37 +381,65 @@ async function analyzeCall(
     conversation.length === 0
   ) {
     return {
-      customerName: null,
-      summary: "No conversation was recorded.",
-      language: null,
-      interestStatus: "uncertain",
-      callOutcome: "no_response",
-      followUpRequired: false,
-      callbackDate: null,
-      callbackTime: null,
-      callbackReason: null,
-      nextAction: null,
+      customerName:
+        null,
+
+      summary:
+        "No conversation was recorded.",
+
+      language:
+        null,
+
+      interestStatus:
+        "uncertain",
+
+      callOutcome:
+        "no_response",
+
+      followUpRequired:
+        false,
+
+      callbackDate:
+        null,
+
+      callbackTime:
+        null,
+
+      callbackReason:
+        null,
+
+      nextAction:
+        null,
     };
   }
 
-  const conversationText = conversation
-    .map((message) => {
-      const speaker =
-        message.type === "user"
-          ? "Customer"
-          : "AI Sales Assistant";
+  const conversationText =
+    conversation
+      .map(
+        (message) => {
+          const speaker =
+            message.type ===
+            "user"
+              ? "Customer"
+              : "AI Sales Assistant";
 
-      return `${speaker}: ${message.text}`;
-    })
-    .join("\n");
+          return `${speaker}: ${message.text}`;
+        },
+      )
+      .join("\n");
 
   const currentIndiaTime =
     getCurrentIndiaTime();
 
   const prompt = `
-You are a call analysis system for an AI voice sales platform representing Tejo EV.
+You are a STRICT call analysis system for an AI voice representative
+for Tejo EV.
 
-Analyze ONLY the current phone conversation.
+Analyze ONLY the CURRENT phone conversation below.
+
+Do not use previous calls.
+Do not use CRM history.
+Do not infer facts that are not present in this conversation.
 
 Return ONLY valid JSON.
 
@@ -169,7 +448,7 @@ The JSON must contain exactly these fields:
 {
   "customerName": null,
   "summary": "Three short lines summarizing this call",
-  "language": "Main language used by the customer",
+  "language": "Main language or mixed language used by the customer",
   "interestStatus": "interested | not_interested | uncertain",
   "callOutcome": "normal | callback_requested | demo_visit_confirmed | not_interested | no_response",
   "followUpRequired": false,
@@ -179,103 +458,302 @@ The JSON must contain exactly these fields:
   "nextAction": "Recommended next action"
 }
 
-BUSINESS RULE:
+============================================================
+CUSTOMER NAME
+============================================================
 
-Tejo EV sells electric scooters only.
+Use a name ONLY when the customer explicitly provides their name.
 
-Do not interpret a customer's interest in a car or other vehicle as
-interest in a Tejo EV product.
+Never guess the customer's name.
 
-CUSTOMER NAME:
+Never use the phone number as the name.
 
-- Use a name only when the customer explicitly provides it.
-- A single name is valid.
-- Never guess.
-- Never use the phone number as the name.
-- Ignore placeholders.
+Never use a model name as the customer name.
 
-SUMMARY:
+============================================================
+LANGUAGE CLASSIFICATION
+============================================================
 
-- No more than three short lines.
-- Include actual requirements.
-- Include daily kilometres when discussed.
-- Include scooter/model interest when discussed.
-- Include objections or concerns.
-- Do not invent information.
+Identify the language actually used by the CUSTOMER.
 
-INTEREST:
+Do not classify the language from the AI assistant's speech.
 
-"not_interested":
-Only when the customer clearly rejects the product/service or says they
-are not interested.
+If the customer uses Kannada mixed with English,
+return:
 
-"interested":
-Clear product interest, purchase intent, or meaningful willingness to continue.
+"Kannada-English"
 
-"uncertain":
-Insufficient evidence.
+If the customer uses Hindi mixed with English,
+return:
 
-Do not use old calls to decide current interestStatus.
+"Hindi-English"
 
-CALL OUTCOME:
+If the customer clearly uses Kannada, Hindi and English,
+return:
+
+"Kannada-Hindi-English"
+
+If the customer uses mostly one language,
+return that language.
+
+Do not automatically classify a mixed Bangalore conversation
+as Hindi merely because some words resemble Hindi.
+
+The customer's actual spoken language is more important than
+isolated words.
+
+============================================================
+SUMMARY
+============================================================
+
+Provide exactly three short lines.
+
+Capture:
+
+- What the customer wanted
+- Models/products/competitors discussed
+- Important questions, objections or next action
+
+Do not invent information.
+
+If the customer repeatedly asks about range, battery, price,
+features, models, competitors, comparisons or specifications,
+include that in the summary.
+
+============================================================
+INTEREST CLASSIFICATION
+============================================================
+
+Use ONLY the CURRENT conversation.
+
+IMPORTANT:
+
+A customer does NOT need to say:
+
+"I want to buy."
+
+to be considered interested.
+
+Classify as "interested" when the customer demonstrates
+meaningful product or purchase exploration.
+
+Examples of INTERESTED behavior:
+
+- Asking about a Tejo EV model
+- Asking about price
+- Asking about range
+- Asking about battery
+- Asking about specifications
+- Asking about features
+- Asking which model is suitable
+- Comparing Tejo EV with Ather
+- Comparing Tejo EV with Simple One
+- Comparing Tejo EV with iQube
+- Asking differences between EV models
+- Asking about a competitor and then comparing with Tejo EV
+- Asking about a test ride/demo
+- Asking about showroom availability
+- Asking about purchase process
+- Asking about variants
+- Asking about charging
+- Asking multiple product questions
+- Continuing the conversation to understand the product
+
+These behaviors indicate PRODUCT EXPLORATION.
+
+Product exploration should normally be classified as:
+
+"interested"
+
+even when purchase timing is unknown.
+
+Use "uncertain" when the evidence is genuinely insufficient.
+
+Examples:
+
+- Customer gives a vague response without discussing a product.
+- Customer only says hello/goodbye.
+- Customer gives insufficient information.
+- Conversation contains no meaningful customer intent.
+
+Use "not_interested" ONLY when the customer clearly rejects
+the product/service or future sales contact.
+
+Examples:
+
+- "I am not interested."
+- "Don't call me."
+- "I don't want an EV."
+- "No requirement."
+- "Remove my number."
+- "Please don't contact me again."
+
+Never classify a customer as not_interested merely because
+they did not commit to purchase.
+
+============================================================
+CALL OUTCOME
+============================================================
 
 "callback_requested":
-The customer clearly requests a future callback.
+
+Use ONLY when the customer clearly asks for a future callback.
+
+Examples:
+
+- "Call me later."
+- "Two minutes later call me."
+- "Tomorrow call me."
+- "I will talk later, call me back."
+- "Please call me after work."
 
 "demo_visit_confirmed":
-The customer explicitly confirms a showroom visit, demo, or test ride.
+
+Use when the customer explicitly confirms a demo,
+test ride or showroom visit.
 
 "not_interested":
-The customer explicitly rejects future sales contact.
+
+Use when the customer explicitly rejects future sales contact.
 
 "no_response":
-Use only when the call clearly ended because the customer stopped responding.
+
+Use only when the call clearly ended because the customer
+stopped responding.
 
 "normal":
-All other calls.
 
-FOLLOW-UP:
+Use for all other completed conversations.
 
-Set followUpRequired to true for an explicit callback request.
+IMPORTANT:
 
-CALLBACK:
+Asking product questions is NOT a "normal/no-interest" signal.
+
+A customer can have:
+
+interestStatus = "interested"
+
+and:
+
+callOutcome = "normal"
+
+when they are exploring but did not request a callback,
+demo or purchase action.
+
+============================================================
+FOLLOW-UP
+============================================================
+
+Set:
+
+followUpRequired = true
+
+ONLY when a concrete future action is required,
+especially an explicit callback request.
+
+Normal product exploration does not automatically mean
+followUpRequired = true.
+
+If the customer explicitly asks for a callback,
+followUpRequired MUST be true.
+
+============================================================
+CALLBACK DATE/TIME
+============================================================
 
 Use India time.
 
-callbackDate:
-YYYY-MM-DD
-
-callbackTime:
-HH:mm
-
-If only a date is given, callbackTime = null.
-
-For relative requests such as "after 30 minutes" or "tomorrow evening",
-calculate the date/time from the current India time only when the request is
-clear enough.
-
-Do not invent a callback time.
-
-CURRENT INDIA TIME:
+Current India time:
 
 ${currentIndiaTime}
 
-CONVERSATION:
+callbackDate format:
+
+YYYY-MM-DD
+
+callbackTime format:
+
+HH:mm
+
+If the customer gives a clear relative time,
+calculate it from the current India time.
+
+Examples:
+
+"after two minutes"
+
+"after 30 minutes"
+
+"tomorrow morning"
+
+"today evening"
+
+Only calculate when the request is sufficiently clear.
+
+Do NOT invent a callback time.
+
+If no callback is requested:
+
+callbackDate = null
+callbackTime = null
+callbackReason = null
+
+============================================================
+IMPORTANT ENTITY RULE
+============================================================
+
+The transcript may contain incorrect speech-to-text results.
+
+Do NOT repair an uncertain word by assuming it is a Tejo EV model.
+
+For example:
+
+"iQOO T Pro"
+
+must NOT automatically become a Tejo EV model.
+
+"Simple One"
+
+must remain a possible competitor unless the conversation
+clearly establishes otherwise.
+
+"Ather"
+
+is a competitor reference unless the conversation proves otherwise.
+
+If an entity is uncertain, describe it as an uncertain/possibly
+recognized competitor or model rather than inventing a Tejo model.
+
+============================================================
+BUSINESS RULE
+============================================================
+
+Tejo EV sells electric two-wheelers only.
+
+Do not interpret interest in cars or unrelated products
+as Tejo EV purchase interest.
+
+============================================================
+CURRENT CONVERSATION
+============================================================
 
 ${conversationText}
 
-Return JSON only.
+============================================================
+FINAL INSTRUCTION
+============================================================
+
+Return ONLY valid JSON.
+
+Do not add markdown.
+
+Do not add explanations.
 `;
 
   try {
     const response =
-      await withTimeoutAndRetry(
-        ai.models.generateContent({
-          model: MODEL,
-          contents: prompt,
-        }),
-        30000,
-        2,
+      await generateAnalysisContent(
+        prompt,
       );
 
     const text =
@@ -287,7 +765,11 @@ Return JSON only.
     );
 
     const analysis =
-      JSON.parse(extractJsonFromResponse(text));
+      JSON.parse(
+        extractJsonFromResponse(
+          text,
+        ),
+      );
 
     if (
       typeof analysis.summary !==
@@ -308,7 +790,8 @@ Return JSON only.
     }
 
     if (
-      analysis.callbackDate !== null &&
+      analysis.callbackDate !==
+        null &&
       (
         typeof analysis.callbackDate !==
           "string" ||
@@ -323,7 +806,8 @@ Return JSON only.
     }
 
     if (
-      analysis.callbackTime !== null &&
+      analysis.callbackTime !==
+        null &&
       (
         typeof analysis.callbackTime !==
           "string" ||
@@ -343,11 +827,7 @@ Return JSON only.
       );
 
     if (
-      ![
-        "interested",
-        "not_interested",
-        "uncertain",
-      ].includes(
+      !VALID_INTEREST_STATUSES.includes(
         analysis.interestStatus,
       )
     ) {
@@ -360,9 +840,24 @@ Return JSON only.
         analysis.callOutcome,
       )
     ) {
-      analysis.callOutcome = "normal";
+      analysis.callOutcome =
+        "normal";
     }
 
+    if (
+      !VALID_LANGUAGES.includes(
+        analysis.language,
+      )
+    ) {
+      analysis.language =
+        analysis.language
+          ? String(
+              analysis.language,
+            ).trim()
+          : null;
+    }
+
+    // Explicit outcome normalization.
     if (
       analysis.callOutcome ===
       "not_interested"
@@ -370,28 +865,79 @@ Return JSON only.
       analysis.interestStatus =
         "not_interested";
 
-      analysis.followUpRequired = false;
-      analysis.callbackDate = null;
-      analysis.callbackTime = null;
-      analysis.callbackReason = null;
+      analysis.followUpRequired =
+        false;
+
+      analysis.callbackDate =
+        null;
+
+      analysis.callbackTime =
+        null;
+
+      analysis.callbackReason =
+        null;
     }
 
     if (
       analysis.callOutcome ===
       "callback_requested"
     ) {
-      analysis.followUpRequired = true;
+      analysis.followUpRequired =
+        true;
 
-      if (!analysis.callbackReason) {
+      if (
+        !analysis.callbackReason
+      ) {
         analysis.callbackReason =
           "Customer requested a callback.";
       }
     }
 
-    if (!analysis.followUpRequired) {
-      analysis.callbackDate = null;
-      analysis.callbackTime = null;
-      analysis.callbackReason = null;
+    if (
+      analysis.callOutcome ===
+      "demo_visit_confirmed"
+    ) {
+      analysis.followUpRequired =
+        false;
+
+      analysis.callbackDate =
+        null;
+
+      analysis.callbackTime =
+        null;
+
+      analysis.callbackReason =
+        null;
+    }
+
+    if (
+      analysis.callOutcome ===
+      "no_response"
+    ) {
+      analysis.followUpRequired =
+        false;
+
+      analysis.callbackDate =
+        null;
+
+      analysis.callbackTime =
+        null;
+
+      analysis.callbackReason =
+        null;
+    }
+
+    if (
+      !analysis.followUpRequired
+    ) {
+      analysis.callbackDate =
+        null;
+
+      analysis.callbackTime =
+        null;
+
+      analysis.callbackReason =
+        null;
     }
 
     return analysis;
@@ -405,17 +951,22 @@ Return JSON only.
   }
 }
 
-// Builds the rolling customer profile.
+// ============================================================
+// CUSTOMER PROFILE
+// ============================================================
+
 async function buildCustomerConversationProfile({
   previousSummary = null,
   previousConversationRate = null,
   currentSummary = null,
-  currentInterestStatus = "uncertain",
+  currentInterestStatus =
+    "uncertain",
 }) {
   if (!currentSummary) {
     return {
       summary:
-        previousSummary || null,
+        previousSummary ||
+        null,
 
       conversationRate:
         typeof previousConversationRate ===
@@ -512,6 +1063,8 @@ Explicit rejection or request to stop future sales contact.
 IMPORTANT:
 
 - Latest call influences the score.
+- Product exploration such as model comparison, pricing,
+  range, battery and specifications is evidence of interest.
 - Latest uncertainty should not automatically erase strong previous history.
 - Explicit not_interested must always result in 0.
 - Do not use random scores.
@@ -520,13 +1073,8 @@ IMPORTANT:
 
   try {
     const response =
-      await withTimeoutAndRetry(
-        ai.models.generateContent({
-          model: MODEL,
-          contents: prompt,
-        }),
-        30000,
-        2,
+      await generateProfileContent(
+        prompt,
       );
 
     const text =
@@ -538,7 +1086,11 @@ IMPORTANT:
     );
 
     const profile =
-      JSON.parse(extractJsonFromResponse(text));
+      JSON.parse(
+        extractJsonFromResponse(
+          text,
+        ),
+      );
 
     let conversationRate =
       Number(
@@ -569,7 +1121,8 @@ IMPORTANT:
       currentInterestStatus ===
       "not_interested"
     ) {
-      conversationRate = 0;
+      conversationRate =
+        0;
     }
 
     const summary =

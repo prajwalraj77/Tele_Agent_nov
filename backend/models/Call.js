@@ -44,6 +44,16 @@ const callSchema = new mongoose.Schema(
       default: "outbound",
     },
 
+    // ========================================================
+    // CALL STATUS
+    // ========================================================
+    //
+    // Existing statuses are preserved because the current
+    // Exotel/voice architecture already uses them.
+    //
+    // "no_answer" is added for bulk-call lifecycle handling.
+    // ========================================================
+
     status: {
       type: String,
       enum: [
@@ -53,6 +63,7 @@ const callSchema = new mongoose.Schema(
         "answered",
         "completed",
         "failed",
+        "no_answer",
       ],
       default: "initiated",
     },
@@ -75,6 +86,7 @@ const callSchema = new mongoose.Schema(
     durationSeconds: {
       type: Number,
       default: 0,
+      min: 0,
     },
 
     summary: {
@@ -89,7 +101,12 @@ const callSchema = new mongoose.Schema(
 
     interestStatus: {
       type: String,
-      enum: ["interested", "not_interested", "uncertain", null],
+      enum: [
+        "interested",
+        "not_interested",
+        "uncertain",
+        null,
+      ],
       default: null,
     },
 
@@ -124,7 +141,12 @@ const callSchema = new mongoose.Schema(
 
     callbackStatus: {
       type: String,
-      enum: ["pending", "processing", "completed", null],
+      enum: [
+        "pending",
+        "processing",
+        "completed",
+        null,
+      ],
       default: null,
     },
 
@@ -138,9 +160,17 @@ const callSchema = new mongoose.Schema(
       default: null,
     },
 
+    // ========================================================
+    // SUMMARY / ANALYSIS STATE
+    // ========================================================
+
     summaryStatus: {
       type: String,
-      enum: ["pending", "completed", "failed"],
+      enum: [
+        "pending",
+        "completed",
+        "failed",
+      ],
       default: "pending",
     },
   },
@@ -149,4 +179,5 @@ const callSchema = new mongoose.Schema(
   },
 );
 
-module.exports = mongoose.model("Call", callSchema);
+module.exports =
+  mongoose.model("Call", callSchema);
